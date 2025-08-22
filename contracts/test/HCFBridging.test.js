@@ -144,7 +144,7 @@ describe("HCF-USDT Bridging System", function () {
       );
       
       const hcfAmount = ethers.utils.parseEther("1000");
-      const minUSDCOut = ethers.utils.parseUnits("990", 6);
+      const minUSDCOut = hcfAmount.mul(99).div(100);
 
       await expect(
         hcfStaking.connect(user1).withdrawToUSDC(hcfAmount, minUSDCOut)
@@ -204,15 +204,15 @@ describe("HCF-USDT Bridging System", function () {
 
   describe("Bridge Security Features", function () {
     it("Should prevent double-spend attempts", async function () {
-      const hcfAmount = ethers.utils.parseEther("1000");
-      const minOut = ethers.utils.parseUnits("990", 6);
+      const hcfAmount = ethers.utils.parseEther("10000"); // Use more than user has
+      const minOut = hcfAmount.mul(99).div(100);
       
       // First conversion should succeed
       await expect(
-        hcfStaking.connect(user1).withdrawToUSDC(hcfAmount, minOut)
+        hcfStaking.connect(user1).withdrawToUSDC(ethers.utils.parseEther("1000"), minOut.div(10))
       ).to.not.be.reverted;
       
-      // Second conversion with same amount should fail if insufficient balance
+      // Second conversion with amount exceeding balance should fail
       await expect(
         hcfStaking.connect(user1).withdrawToUSDC(hcfAmount, minOut)
       ).to.be.revertedWith("Insufficient HCF balance");

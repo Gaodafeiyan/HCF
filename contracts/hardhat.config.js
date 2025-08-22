@@ -2,7 +2,7 @@ require("@nomiclabs/hardhat-waffle");
 require("@nomiclabs/hardhat-ethers");
 require('dotenv').config({ path: '../.env' });
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "6b6619ed32433c2ffab77bd750d7af6cf46e648254954eab1ab84721c3b151aa";
+const PRIVATE_KEY = process.env.PRIVATE_KEY || "0x0000000000000000000000000000000000000000000000000000000000000001";
 
 module.exports = {
   solidity: {

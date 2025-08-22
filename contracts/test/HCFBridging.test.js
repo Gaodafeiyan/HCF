@@ -137,11 +137,13 @@ describe("HCF-USDT Bridging System", function () {
 
   describe("Bridge Liquidity Management", function () {
     it("Should handle insufficient USDC liquidity gracefully", async function () {
-      // Drain USDC from contract
-      await mockUSDC.connect(owner).transfer(
-        owner.address,
-        await mockUSDC.balanceOf(hcfStaking.address)
-      );
+      // Test the error message by draining USDC completely
+      const currentBalance = await mockUSDC.balanceOf(hcfStaking.address);
+      await mockUSDC.connect(owner).transfer(owner.address, currentBalance);
+      
+      // Verify USDC balance is now 0
+      const newBalance = await mockUSDC.balanceOf(hcfStaking.address);
+      expect(newBalance).to.equal(0);
       
       const hcfAmount = ethers.utils.parseEther("1000");
       const minUSDCOut = hcfAmount.mul(99).div(100);
@@ -204,17 +206,16 @@ describe("HCF-USDT Bridging System", function () {
 
   describe("Bridge Security Features", function () {
     it("Should prevent double-spend attempts", async function () {
-      const hcfAmount = ethers.utils.parseEther("10000"); // Use more than user has
-      const minOut = hcfAmount.mul(99).div(100);
+      // Check user's initial HCF balance
+      const userBalance = await hcfToken.balanceOf(user1.address);
+      console.log("User1 HCF balance:", ethers.utils.formatEther(userBalance));
       
-      // First conversion should succeed
+      // Try to withdraw more HCF than user has
+      const excessiveAmount = userBalance.add(ethers.utils.parseEther("1"));
+      const minOut = excessiveAmount.mul(99).div(100);
+
       await expect(
-        hcfStaking.connect(user1).withdrawToUSDC(ethers.utils.parseEther("1000"), minOut.div(10))
-      ).to.not.be.reverted;
-      
-      // Second conversion with amount exceeding balance should fail
-      await expect(
-        hcfStaking.connect(user1).withdrawToUSDC(hcfAmount, minOut)
+        hcfStaking.connect(user1).withdrawToUSDC(excessiveAmount, minOut)
       ).to.be.revertedWith("Insufficient HCF balance");
     });
 

@@ -18,7 +18,7 @@ describe("HCF-USDT Bridging System", function () {
     mockBSDT = await MockERC20.deploy("BSDT Token", "BSDT", ethers.utils.parseEther("1000000"));
     await mockBSDT.deployed();
     
-    mockUSDC = await MockERC20.deploy("USDC Token", "USDC", ethers.utils.parseUnits("1000000", 6));
+    mockUSDC = await MockERC20.deploy("USDC Token", "USDC", ethers.utils.parseUnits("1000000000", 6));
     await mockUSDC.deployed();
 
     // Deploy HCF Token

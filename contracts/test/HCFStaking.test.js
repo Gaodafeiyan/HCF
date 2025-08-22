@@ -81,7 +81,7 @@ describe("HCF Staking Contract", function () {
 
   describe("Basic Staking Functions", function () {
     it("Should allow staking in valid pool with correct amount", async function () {
-      const stakeAmount = ethers.utils.parseEther("500"); // Within daily limit
+      const stakeAmount = ethers.utils.parseEther("400"); // Under daily limit
       const poolId = 0; // Pool 0: 100-1000 HCF, 0.4% daily
 
       await expect(hcfStaking.connect(user1).stake(poolId, stakeAmount, false))
@@ -121,7 +121,7 @@ describe("HCF Staking Contract", function () {
 
   describe("Rewards Calculation", function () {
     beforeEach(async function () {
-      const stakeAmount = ethers.utils.parseEther("1000");
+      const stakeAmount = ethers.utils.parseEther("400");
       await hcfStaking.connect(user1).stake(1, stakeAmount, false); // Pool 1, 0.8% daily
     });
 
@@ -131,13 +131,13 @@ describe("HCF Staking Contract", function () {
       await ethers.provider.send("evm_mine");
 
       const pendingRewards = await hcfStaking.calculatePendingRewards(user1.address);
-      const expectedDaily = ethers.utils.parseEther("1000").mul(80).div(10000); // 1000 * 0.8%
+      const expectedDaily = ethers.utils.parseEther("400").mul(80).div(10000); // 400 * 0.8%
       
       expect(pendingRewards.toString()).to.equal(expectedDaily.toString());
     });
 
     it("Should apply LP multiplier (2x) correctly", async function () {
-      const stakeAmount = ethers.utils.parseEther("1000");
+      const stakeAmount = ethers.utils.parseEther("400");
       await hcfStaking.connect(user2).stake(1, stakeAmount, true); // LP staking
       
       // Fast forward 1 day
@@ -159,7 +159,7 @@ describe("HCF Staking Contract", function () {
       await ethers.provider.send("evm_mine");
 
       const pendingRewards = await hcfStaking.calculatePendingRewards(user1.address);
-      const expectedAdjusted = ethers.utils.parseEther("1000").mul(80).mul(15000).div(100000000); // 1.5x multiplier
+      const expectedAdjusted = ethers.utils.parseEther("400").mul(80).mul(15000).div(100000000); // 1.5x multiplier
       
       expect(pendingRewards.toString()).to.equal(expectedAdjusted.toString());
     });
@@ -167,7 +167,7 @@ describe("HCF Staking Contract", function () {
 
   describe("Dual Cycle System", function () {
     it("Should track cycle completion correctly", async function () {
-      const stakeAmount = ethers.utils.parseEther("50000"); // Large stake for faster cycle completion
+      const stakeAmount = ethers.utils.parseEther("500"); // Max daily limit
       await hcfStaking.connect(user1).stake(4, stakeAmount, false); // Highest pool
       
       // Fast forward enough time to accumulate 10k+ HCF in rewards

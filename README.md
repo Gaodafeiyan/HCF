@@ -1,5 +1,6 @@
 # HCF DeFi Project
 
+**Monorepo for HCF: DApp + Backend + Smart Contracts**  
 RWA-backed DeFi application with staking, referral rewards, and node mining.
 
 ## 项目概述
@@ -35,7 +36,10 @@ hcf-project/
 
 ## 开发阶段
 - [x] 项目初始化和环境配置
-- [ ] 智能合约开发 (HCF代币、质押、推荐、节点)
+- [x] HCF代币合约开发 (税费系统、BSDT集成、挖矿奖励)
+- [ ] 质押合约开发 (5等级收益、双循环机制)
+- [ ] 推荐奖励合约 (20代推荐、团队激励)
+- [ ] 节点管理合约 (99个节点、算力分红)
 - [ ] 后端API开发
 - [ ] 前端DApp开发
 - [ ] 测试和部署

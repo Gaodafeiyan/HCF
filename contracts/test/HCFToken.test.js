@@ -6,9 +6,10 @@ describe("HCF Token", function () {
   let mockBSDT;
   let owner, marketing, lp, node, user1, user2;
 
-  const TOTAL_SUPPLY = ethers.utils.parseEther("1000000000"); // 10亿
-  const INITIAL_RELEASE = ethers.utils.parseEther("10000000");  // 1000万
-  const FINAL_SUPPLY = ethers.utils.parseEther("990000");       // 99万
+  // Use strings for large numbers to avoid overflow
+  const TOTAL_SUPPLY = "1000000000"; // 10亿
+  const INITIAL_RELEASE = "10000000";  // 1000万
+  const FINAL_SUPPLY = "990000";       // 99万
 
   beforeEach(async function () {
     [owner, marketing, lp, node, user1, user2] = await ethers.getSigners();
@@ -16,6 +17,7 @@ describe("HCF Token", function () {
     // Deploy Mock BSDT Token
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     mockBSDT = await MockERC20.deploy("BSDT Token", "BSDT", ethers.utils.parseEther("1000000"));
+    await mockBSDT.deployed();
 
     // Deploy HCF Token
     const HCFToken = await ethers.getContractFactory("HCFToken");
@@ -25,6 +27,7 @@ describe("HCF Token", function () {
       lp.address,
       node.address
     );
+    await hcfToken.deployed();
   });
 
   describe("Deployment", function () {
@@ -35,7 +38,8 @@ describe("HCF Token", function () {
 
     it("Should mint initial supply to owner", async function () {
       const ownerBalance = await hcfToken.balanceOf(owner.address);
-      expect(ownerBalance).to.equal(INITIAL_RELEASE);
+      const expectedBalance = ethers.utils.parseEther(INITIAL_RELEASE);
+      expect(ownerBalance.toString()).to.equal(expectedBalance.toString());
     });
 
     it("Should set correct addresses", async function () {
@@ -55,18 +59,22 @@ describe("HCF Token", function () {
   describe("Tax System", function () {
     beforeEach(async function () {
       await hcfToken.enableTrading();
+      // Give user1 some tokens for testing
       await hcfToken.transfer(user1.address, ethers.utils.parseEther("1000"));
     });
 
     it("Should apply transfer tax", async function () {
       const transferAmount = ethers.utils.parseEther("100");
-      const expectedTax = transferAmount * BigInt(100) / BigInt(10000); // 1%
-      const expectedReceived = transferAmount - expectedTax;
-
+      const user2BalanceBefore = await hcfToken.balanceOf(user2.address);
+      
       await hcfToken.connect(user1).transfer(user2.address, transferAmount);
-
-      const user2Balance = await hcfToken.balanceOf(user2.address);
-      expect(user2Balance).to.equal(expectedReceived);
+      
+      const user2BalanceAfter = await hcfToken.balanceOf(user2.address);
+      const received = user2BalanceAfter.sub(user2BalanceBefore);
+      
+      // Calculate expected: 100 - (100 * 1% tax) = 99
+      const expectedReceived = transferAmount.mul(99).div(100);
+      expect(received.toString()).to.equal(expectedReceived.toString());
     });
 
     it("Should distribute tax correctly", async function () {
@@ -84,9 +92,14 @@ describe("HCF Token", function () {
 
       // Tax is 1% of 100 = 1 HCF
       // Marketing gets 30% of 1 = 0.3 HCF
-      const expectedMarketingIncrease = transferAmount * BigInt(100) * BigInt(3000) / (BigInt(10000) * BigInt(10000));
+      const totalTax = transferAmount.mul(1).div(100); // 1%
+      const expectedMarketingIncrease = totalTax.mul(30).div(100); // 30%
+      const expectedLpIncrease = totalTax.mul(20).div(100); // 20%  
+      const expectedNodeIncrease = totalTax.mul(10).div(100); // 10%
       
-      expect(marketingBalanceAfter - marketingBalanceBefore).to.equal(expectedMarketingIncrease);
+      expect(marketingBalanceAfter.sub(marketingBalanceBefore).toString()).to.equal(expectedMarketingIncrease.toString());
+      expect(lpBalanceAfter.sub(lpBalanceBefore).toString()).to.equal(expectedLpIncrease.toString());
+      expect(nodeBalanceAfter.sub(nodeBalanceBefore).toString()).to.equal(expectedNodeIncrease.toString());
     });
 
     it("Should allow owner to update tax rates", async function () {
@@ -100,31 +113,37 @@ describe("HCF Token", function () {
     it("Should prevent non-owner from updating tax rates", async function () {
       await expect(
         hcfToken.connect(user1).setTaxRates(300, 600, 150)
-      ).to.be.revertedWithCustomError(hcfToken, "OwnableUnauthorizedAccount");
+      ).to.be.revertedWith("OwnableUnauthorizedAccount");
     });
   });
 
   describe("Mining System", function () {
     it("Should have correct initial mining pool", async function () {
       const remainingPool = await hcfToken.getRemainingMiningPool();
-      const expectedPool = TOTAL_SUPPLY - INITIAL_RELEASE;
-      expect(remainingPool).to.equal(expectedPool);
+      
+      // Calculate expected pool: TOTAL_SUPPLY - INITIAL_RELEASE
+      const totalSupply = ethers.utils.parseEther(TOTAL_SUPPLY);
+      const initialRelease = ethers.utils.parseEther(INITIAL_RELEASE);
+      const expectedPool = totalSupply.sub(initialRelease);
+      
+      expect(remainingPool.toString()).to.equal(expectedPool.toString());
     });
 
     it("Should allow owner to release mining rewards", async function () {
       const rewardAmount = ethers.utils.parseEther("1000");
+      const user1BalanceBefore = await hcfToken.balanceOf(user1.address);
       
       await expect(hcfToken.releaseMiningRewards(user1.address, rewardAmount))
         .to.emit(hcfToken, "MiningReward")
         .withArgs(user1.address, rewardAmount);
 
-      const user1Balance = await hcfToken.balanceOf(user1.address);
-      expect(user1Balance).to.equal(rewardAmount);
+      const user1BalanceAfter = await hcfToken.balanceOf(user1.address);
+      expect(user1BalanceAfter.sub(user1BalanceBefore).toString()).to.equal(rewardAmount.toString());
     });
 
     it("Should prevent exceeding mining pool", async function () {
       const totalPool = await hcfToken.getRemainingMiningPool();
-      const excessAmount = totalPool + BigInt(1);
+      const excessAmount = totalPool.add(ethers.utils.parseEther("1"));
 
       await expect(
         hcfToken.releaseMiningRewards(user1.address, excessAmount)
@@ -155,7 +174,7 @@ describe("HCF Token", function () {
       await hcfToken.connect(user1).swapBSDTForHCF(swapAmount);
       
       const user1HCFAfter = await hcfToken.balanceOf(user1.address);
-      expect(user1HCFAfter - user1HCFBefore).to.equal(swapAmount);
+      expect(user1HCFAfter.sub(user1HCFBefore).toString()).to.equal(swapAmount.toString());
     });
 
     it("Should allow swapping HCF for BSDT", async function () {
@@ -169,12 +188,13 @@ describe("HCF Token", function () {
       await hcfToken.connect(user1).swapHCFForBSDT(swapAmount);
       
       const user1BSDTAfter = await mockBSDT.balanceOf(user1.address);
-      expect(user1BSDTAfter - user1BSDTBefore).to.equal(swapAmount);
+      expect(user1BSDTAfter.sub(user1BSDTBefore).toString()).to.equal(swapAmount.toString());
     });
   });
 
   describe("Admin Functions", function () {
     it("Should allow owner to enable trading", async function () {
+      // First check it's disabled
       expect(await hcfToken.tradingEnabled()).to.be.false;
       
       await expect(hcfToken.enableTrading())
@@ -184,11 +204,57 @@ describe("HCF Token", function () {
     });
 
     it("Should prevent transfers when trading is disabled", async function () {
+      // Give user1 some tokens
       await hcfToken.transfer(user1.address, ethers.utils.parseEther("100"));
       
+      // Try to transfer without enabling trading
       await expect(
         hcfToken.connect(user1).transfer(user2.address, ethers.utils.parseEther("50"))
       ).to.be.revertedWith("Trading not enabled");
+    });
+
+    it("Should allow setting DEX pairs", async function () {
+      const dexPair = user2.address; // Use user2 as mock DEX pair
+      
+      await hcfToken.setDEXPair(dexPair, true);
+      expect(await hcfToken.isDEXPair(dexPair)).to.be.true;
+      
+      await hcfToken.setDEXPair(dexPair, false);
+      expect(await hcfToken.isDEXPair(dexPair)).to.be.false;
+    });
+
+    it("Should allow excluding addresses from tax", async function () {
+      expect(await hcfToken.isExcludedFromTax(user1.address)).to.be.false;
+      
+      await hcfToken.setExcludedFromTax(user1.address, true);
+      expect(await hcfToken.isExcludedFromTax(user1.address)).to.be.true;
+      
+      await hcfToken.setExcludedFromTax(user1.address, false);
+      expect(await hcfToken.isExcludedFromTax(user1.address)).to.be.false;
+    });
+
+    it("Should prevent setting tax rates too high", async function () {
+      await expect(
+        hcfToken.setTaxRates(1100, 600, 150) // 11% > 10% limit
+      ).to.be.revertedWith("Tax too high");
+    });
+
+    it("Should allow owner to withdraw BSDT and HCF", async function () {
+      // Give contract some tokens first
+      await hcfToken.transfer(hcfToken.address, ethers.utils.parseEther("100"));
+      await mockBSDT.transfer(hcfToken.address, ethers.utils.parseEther("100"));
+      
+      const ownerHCFBefore = await hcfToken.balanceOf(owner.address);
+      const ownerBSDTBefore = await mockBSDT.balanceOf(owner.address);
+      
+      await hcfToken.withdrawHCF(ethers.utils.parseEther("50"));
+      await hcfToken.withdrawBSDT(ethers.utils.parseEther("50"));
+      
+      const ownerHCFAfter = await hcfToken.balanceOf(owner.address);
+      const ownerBSDTAfter = await mockBSDT.balanceOf(owner.address);
+      
+      expect(ownerHCFAfter.sub(ownerHCFBefore).toString()).to.equal(ethers.utils.parseEther("50").toString());
+      expect(ownerBSDTAfter.sub(ownerBSDTBefore).toString()).to.equal(ethers.utils.parseEther("50").toString());
     });
   });
 });

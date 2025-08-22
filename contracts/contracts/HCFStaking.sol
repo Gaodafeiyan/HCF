@@ -24,6 +24,12 @@ interface IUSDC {
     function balanceOf(address account) external view returns (uint256);
 }
 
+interface IHCFReferral {
+    function distributeReferralRewards(address user, uint256 rewardAmount) external;
+    function distributeTeamRewards(address user, uint256 rewardAmount) external;
+    function getUserData(address user) external view returns (address referrer, uint256 directCount, uint256 teamLevel, uint256 personalVolume, uint256 teamVolume, uint256 totalReferralReward, uint256 totalTeamReward, bool isActive, uint256 joinTime, uint256 lastRewardTime);
+}
+
 contract HCFStaking is ReentrancyGuard, Ownable {
     
     // Staking Pool Levels
@@ -59,6 +65,7 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     IHCFToken public hcfToken;
     IBSDT public bsdtToken;
     IUSDC public usdcToken;
+    IHCFReferral public referralContract;
     
     // Pool configurations
     PoolInfo[5] public pools;
@@ -212,6 +219,12 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         // Mint rewards from mining pool
         hcfToken.releaseMiningRewards(_user, pending);
         
+        // Distribute referral rewards if referral contract is set
+        if (address(referralContract) != address(0)) {
+            try referralContract.distributeReferralRewards(_user, pending) {} catch {}
+            try referralContract.distributeTeamRewards(_user, pending) {} catch {}
+        }
+        
         emit RewardsClaimed(_user, pending);
     }
     
@@ -327,6 +340,10 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     function setLPToken(address _token, bool _isLP) external onlyOwner {
         isLPToken[_token] = _isLP;
+    }
+    
+    function setReferralContract(address _referralContract) external onlyOwner {
+        referralContract = IHCFReferral(_referralContract);
     }
     
     // Emergency functions

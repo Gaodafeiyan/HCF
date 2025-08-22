@@ -60,7 +60,7 @@ describe("HCF Ranking System - District Rewards", function () {
     it("Should calculate 20% bonus for top 100 stakers", async function () {
       // Simulate top-tier staking to qualify for top 100
       const stakeAmount = ethers.utils.parseEther("500"); // Within daily limit
-      await hcfStaking.connect(users[0]).stake(2, stakeAmount, false); // Pool 2: 1.2% daily
+      await hcfStaking.connect(users[0]).stake(0, stakeAmount, false); // Pool 0: 0.4% daily
 
       // Fast forward 1 day
       await ethers.provider.send("evm_increaseTime", [SECONDS_PER_DAY]);
@@ -72,10 +72,10 @@ describe("HCF Ranking System - District Rewards", function () {
       const top100Bonus = baseReward.mul(20).div(100); // 20% bonus
       const totalExpected = baseReward.add(top100Bonus);
       
-      // Base reward should be: 500 * 1.2% = 6 HCF per day
-      const expectedBase = ethers.utils.parseEther("6");
-      const expectedBonus = ethers.utils.parseEther("1.2"); // 20% of 6
-      const expectedTotal = ethers.utils.parseEther("7.2");
+      // Base reward should be: 500 * 0.4% = 2 HCF per day
+      const expectedBase = ethers.utils.parseEther("2");
+      const expectedBonus = ethers.utils.parseEther("0.4"); // 20% of 2
+      const expectedTotal = ethers.utils.parseEther("2.4");
 
       expect(baseReward).to.equal(expectedBase);
       expect(top100Bonus).to.equal(expectedBonus);
@@ -86,7 +86,7 @@ describe("HCF Ranking System - District Rewards", function () {
       // Multiple users stake to simulate ranking competition
       for (let i = 0; i < 5; i++) {
         const stakeAmount = ethers.utils.parseEther((500 - i * 10).toString());
-        await hcfStaking.connect(users[i]).stake(2, stakeAmount, false);
+        await hcfStaking.connect(users[i]).stake(0, stakeAmount, false);
       }
 
       // Verify users maintain ranking eligibility
@@ -98,10 +98,10 @@ describe("HCF Ranking System - District Rewards", function () {
 
     it("Should handle ranking updates when new top stakers join", async function () {
       // Initial top staker
-      await hcfStaking.connect(users[0]).stake(1, ethers.utils.parseEther("500"), false);
+      await hcfStaking.connect(users[0]).stake(0, ethers.utils.parseEther("500"), false);
       
       // New staker with higher amount (simulate higher via different pool)
-      await hcfStaking.connect(users[1]).stake(2, ethers.utils.parseEther("500"), false);
+      await hcfStaking.connect(users[1]).stake(0, ethers.utils.parseEther("500"), false);
       
       const user0Info = await hcfStaking.getUserInfo(users[0].address);
       const user1Info = await hcfStaking.getUserInfo(users[1].address);
@@ -126,10 +126,10 @@ describe("HCF Ranking System - District Rewards", function () {
       const midTierBonus = baseReward.mul(10).div(100); // 10% bonus
       const totalExpected = baseReward.add(midTierBonus);
       
-      // Base reward: 400 * 0.8% = 3.2 HCF per day  
-      const expectedBase = ethers.utils.parseEther("3.2");
-      const expectedBonus = ethers.utils.parseEther("0.32"); // 10% of 3.2
-      const expectedTotal = ethers.utils.parseEther("3.52");
+      // Base reward: 400 * 0.4% = 1.6 HCF per day  
+      const expectedBase = ethers.utils.parseEther("1.6");
+      const expectedBonus = ethers.utils.parseEther("0.16"); // 10% of 1.6
+      const expectedTotal = ethers.utils.parseEther("1.76");
 
       expect(baseReward).to.equal(expectedBase);
       expect(midTierBonus).to.equal(expectedBonus);

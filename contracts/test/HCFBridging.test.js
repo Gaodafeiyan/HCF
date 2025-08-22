@@ -18,7 +18,8 @@ describe("HCF-USDT Bridging System", function () {
     mockBSDT = await MockERC20.deploy("BSDT Token", "BSDT", ethers.utils.parseEther("1000000"));
     await mockBSDT.deployed();
     
-    mockUSDC = await MockERC20.deploy("USDC Token", "USDC", ethers.utils.parseUnits("1000000000", 6));
+    // USDC with huge supply to handle 18-decimal calculations
+    mockUSDC = await MockERC20.deploy("USDC Token", "USDC", ethers.utils.parseEther("1000000000000"));
     await mockUSDC.deployed();
 
     // Deploy HCF Token
@@ -44,7 +45,8 @@ describe("HCF-USDT Bridging System", function () {
     await hcfToken.enableTrading();
     await hcfToken.transfer(user1.address, ethers.utils.parseEther("50000"));
     await hcfToken.transfer(user2.address, ethers.utils.parseEther("50000"));
-    await mockUSDC.transfer(hcfStaking.address, ethers.utils.parseUnits("100000000", 6)); // 100M USDC
+    // Transfer huge amount of USDC (treated as 18-decimal by contract)
+    await mockUSDC.transfer(hcfStaking.address, ethers.utils.parseEther("10000000000"));
 
     // Approvals
     await hcfToken.connect(user1).approve(hcfStaking.address, ethers.utils.parseEther("50000"));

@@ -1,0 +1,19 @@
+{
+  "name": "hcf-defi-project",
+  "version": "1.0.0",
+  "description": "HCF DeFi DApp - RWA backed decentralized finance application",
+  "main": "index.js",
+  "scripts": {
+    "setup": "cd contracts && npm install && cd ../backend && npm install && cd ../frontend && npm install",
+    "setup:contracts": "cd contracts && npm install",
+    "setup:backend": "cd backend && npm install", 
+    "setup:frontend": "cd frontend && npm install",
+    "dev:contracts": "cd contracts && npx hardhat node",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "test:contracts": "cd contracts && npx hardhat test"
+  },
+  "keywords": ["defi", "blockchain", "smart-contracts", "bsc", "hcf"],
+  "author": "HCF Team",
+  "license": "MIT"
+}

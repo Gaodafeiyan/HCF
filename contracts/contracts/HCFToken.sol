@@ -16,17 +16,29 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 * 10**18; // 10亿
     uint256 public constant INITIAL_RELEASE = 10_000_000 * 10**18;  // 首发1000万
     uint256 public constant FINAL_SUPPLY = 990_000 * 10**18;       // 最终99万
+    uint256 public constant MIN_BALANCE = 1e14; // 0.0001 HCF 不可转账余额
     
     // Tax Rates (basis points: 100 = 1%)
     uint256 public buyTaxRate = 200;    // 2%
     uint256 public sellTaxRate = 500;   // 5%  
     uint256 public transferTaxRate = 100; // 1%
     
-    // Tax Distribution (basis points)
-    uint256 public burnRate = 4000;     // 40%
-    uint256 public marketingRate = 3000; // 30%
-    uint256 public lpRate = 2000;       // 20%
-    uint256 public nodeRate = 1000;     // 10%
+    // 真实需求税费分配:
+    // 买入 2%: 0.5%烧 + 0.5%营销 + 0.5%LP + 0.5%节点 (0.5%×4)
+    // 卖出 5%: 2%烧 + 1%营销 + 1%LP + 1%节点 (2%+1%×3)
+    // 转账 1%: 纯销毁
+    
+    // 买入税分配 (2% = 0.5%×4)
+    uint256 public buyBurnRate = 2500;      // 25% of 2% = 0.5%
+    uint256 public buyMarketingRate = 2500; // 25% of 2% = 0.5%
+    uint256 public buyLPRate = 2500;        // 25% of 2% = 0.5%
+    uint256 public buyNodeRate = 2500;      // 25% of 2% = 0.5%
+    
+    // 卖出税分配 (5% = 2%+1%+1%+1%)
+    uint256 public sellBurnRate = 4000;     // 40% of 5% = 2%
+    uint256 public sellMarketingRate = 2000; // 20% of 5% = 1%
+    uint256 public sellLPRate = 2000;       // 20% of 5% = 1%
+    uint256 public sellNodeRate = 2000;     // 20% of 5% = 1%
     
     // Addresses
     address public bsdtToken;
@@ -34,9 +46,10 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     address public lpWallet;
     address public nodeWallet;
     
-    // Mining
-    uint256 public miningPool = TOTAL_SUPPLY - INITIAL_RELEASE; // 9.9亿挖矿奖励
+    // LP Mining (9.9亿奖励LP提供者)
+    uint256 public miningPool = TOTAL_SUPPLY - INITIAL_RELEASE; // 9.9亿LP挖矿奖励
     uint256 public miningReleased;
+    address public lpMiningContract; // LP挖矿合约地址
     
     // Trading
     mapping(address => bool) public isExcludedFromTax;
@@ -45,8 +58,9 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     
     // Events
     event TaxDistribution(uint256 burned, uint256 marketing, uint256 lp, uint256 nodes);
-    event MiningReward(address indexed user, uint256 amount);
+    event LPMiningReward(address indexed user, uint256 amount);
     event TradingEnabled();
+    event LPMiningContractSet(address indexed oldContract, address indexed newContract);
     
     constructor(
         address _bsdtToken,
@@ -78,12 +92,20 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         transferTaxRate = _transferTax;
     }
     
-    function setTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external onlyOwner {
+    function setBuyTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external onlyOwner {
         require(_burn + _marketing + _lp + _node == 10000, "Must equal 100%");
-        burnRate = _burn;
-        marketingRate = _marketing;
-        lpRate = _lp;
-        nodeRate = _node;
+        buyBurnRate = _burn;
+        buyMarketingRate = _marketing;
+        buyLPRate = _lp;
+        buyNodeRate = _node;
+    }
+    
+    function setSellTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external onlyOwner {
+        require(_burn + _marketing + _lp + _node == 10000, "Must equal 100%");
+        sellBurnRate = _burn;
+        sellMarketingRate = _marketing;
+        sellLPRate = _lp;
+        sellNodeRate = _node;
     }
     
     function setExcludedFromTax(address account, bool excluded) external onlyOwner {
@@ -99,15 +121,38 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         emit TradingEnabled();
     }
     
-    // Mining Functions
-    function releaseMiningRewards(address to, uint256 amount) external onlyOwner {
+    function setLPMiningContract(address _lpMiningContract) external onlyOwner {
+        require(_lpMiningContract != address(0), "Invalid contract address");
+        address oldContract = lpMiningContract;
+        lpMiningContract = _lpMiningContract;
+        
+        // Exclude LP mining contract from tax
+        isExcludedFromTax[_lpMiningContract] = true;
+        
+        emit LPMiningContractSet(oldContract, _lpMiningContract);
+    }
+    
+    // LP Mining Functions  
+    function releaseMiningRewards(address to, uint256 amount) external {
+        require(msg.sender == lpMiningContract, "Only LP mining contract");
         require(miningReleased + amount <= miningPool, "Exceeds mining pool");
         require(totalSupply() + amount <= TOTAL_SUPPLY, "Exceeds total supply");
         
         miningReleased += amount;
         _mint(to, amount);
         
-        emit MiningReward(to, amount);
+        emit LPMiningReward(to, amount);
+    }
+    
+    // Legacy mining function for owner (emergency use)
+    function releaseMiningRewardsOwner(address to, uint256 amount) external onlyOwner {
+        require(miningReleased + amount <= miningPool, "Exceeds mining pool");
+        require(totalSupply() + amount <= TOTAL_SUPPLY, "Exceeds total supply");
+        
+        miningReleased += amount;
+        _mint(to, amount);
+        
+        emit LPMiningReward(to, amount);
     }
     
     // Transfer Override
@@ -119,6 +164,11 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         }
         
         require(amount > 0, "Amount must be positive");
+        
+        // Check minimum balance requirement (0.0001 HCF must remain)
+        if (balanceOf(from) >= MIN_BALANCE) {
+            require(balanceOf(from) - amount >= MIN_BALANCE, "Must keep minimum 0.0001 HCF balance");
+        }
         
         // Check trading enabled
         if (!tradingEnabled && !isExcludedFromTax[from] && !isExcludedFromTax[to]) {
@@ -142,10 +192,30 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         
         // Process tax by transferring to tax wallets
         if (taxAmount > 0) {
-            uint256 burnAmount = (taxAmount * burnRate) / 10000;
-            uint256 marketingAmount = (taxAmount * marketingRate) / 10000;
-            uint256 lpAmount = (taxAmount * lpRate) / 10000;
-            uint256 nodeAmount = (taxAmount * nodeRate) / 10000;
+            uint256 burnAmount;
+            uint256 marketingAmount;
+            uint256 lpAmount;
+            uint256 nodeAmount;
+            
+            if (isDEXPair[to]) {
+                // 卖出税: 2%烧 + 1%营销 + 1%LP + 1%节点
+                burnAmount = (taxAmount * sellBurnRate) / 10000;
+                marketingAmount = (taxAmount * sellMarketingRate) / 10000;
+                lpAmount = (taxAmount * sellLPRate) / 10000;
+                nodeAmount = (taxAmount * sellNodeRate) / 10000;
+            } else if (isDEXPair[from]) {
+                // 买入税: 0.5%×4均等分配
+                burnAmount = (taxAmount * buyBurnRate) / 10000;
+                marketingAmount = (taxAmount * buyMarketingRate) / 10000;
+                lpAmount = (taxAmount * buyLPRate) / 10000;
+                nodeAmount = (taxAmount * buyNodeRate) / 10000;
+            } else {
+                // 转账税: 纯销毁
+                burnAmount = taxAmount;
+                marketingAmount = 0;
+                lpAmount = 0;
+                nodeAmount = 0;
+            }
             
             // Update balances for tax distribution
             if (burnAmount > 0) {

@@ -32,26 +32,31 @@ interface IHCFReferral {
 
 contract HCFStaking is ReentrancyGuard, Ownable {
     
-    // Staking Pool Levels
-    struct PoolInfo {
-        uint256 dailyRate;      // Daily rate in basis points (40 = 0.4%)
-        uint256 minAmount;      // Minimum staking amount
-        uint256 maxAmount;      // Maximum staking amount
-        uint256 totalStaked;    // Total amount staked in this pool
-        bool active;            // Pool active status
+    // Staking Level System (按照真实需求重构)
+    struct StakingLevel {
+        uint256 minAmount;       // 最小质押数量
+        uint256 baseRate;        // 基础日化率 (basis points)
+        uint256 lpRate;          // LP模式日化率
+        uint256 compoundUnit;    // 复投倍数单位
+        uint256 lpCoefficient;   // LP系数 (1:5 = 500)
+        uint256 totalStaked;     // 该等级总质押量
+        bool active;             // 等级激活状态
     }
     
-    // User Staking Info
+    // User Staking Info (重构为真实需求)
     struct UserInfo {
-        uint256 amount;         // Staked amount
-        uint256 poolId;         // Pool ID (0-4 for 5 levels)
-        uint256 startTime;      // Staking start timestamp
-        uint256 lastClaim;      // Last claim timestamp
-        uint256 totalClaimed;   // Total rewards claimed
-        bool isLP;              // Is LP staking (gets 2x multiplier)
-        uint256 cycleCount;     // Dual cycle count
-        uint256 lastDepositTime; // For purchase limit tracking
-        uint256 weeklyDeposited; // Weekly deposit tracking
+        uint256 amount;          // 质押总金额
+        uint256 levelId;         // 质押等级 (0-3)
+        uint256 startTime;       // 开始质押时间
+        uint256 lastClaim;       // 上次提取时间
+        uint256 totalClaimed;    // 累计已提取
+        bool isLP;               // 是否LP模式
+        uint256 lpHCFAmount;     // LP模式中的HCF数量
+        uint256 lpBSDTAmount;    // LP模式中的BSDT数量
+        uint256 compoundCount;   // 复投次数
+        uint256 lastDepositTime; // 最后存款时间
+        uint256 weeklyDeposited; // 周存款量
+        bool isEquityLP;         // 是否股权LP
     }
     
     // Dual Cycle System
@@ -67,10 +72,17 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     IUSDC public usdcToken;
     IHCFReferral public referralContract;
     
-    // Pool configurations
-    PoolInfo[5] public pools;
+    // Level configurations (真实需求的5等级)
+    StakingLevel[5] public stakingLevels;
     mapping(address => UserInfo) public userInfo;
     mapping(address => bool) public isLPToken;
+    
+    // 股权LP归集账户
+    address public equityLPCollector;
+    
+    // LP动态平衡参数
+    uint256 public lpTargetRatio = 5000; // 50% HCF in LP
+    uint256 public priceImpactThreshold = 1000; // 10% price change threshold
     
     // Cycle configuration
     CycleInfo public cycleConfig;
@@ -89,15 +101,21 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     // Admin controls
     bool public stakingEnabled = true;
-    mapping(uint256 => uint256) public poolRateMultipliers; // Backend rate adjustments
+    mapping(uint256 => uint256) public levelRateMultipliers; // Backend rate adjustments
+    
+    // 防暴跌系统参数
+    uint256 public currentPriceImpact = 0; // 当日价格变化百分比
+    uint256 public additionalTaxRate = 0; // 额外税率
+    uint256 public productionReductionRate = 0; // 减产率
     
     // Events
-    event Staked(address indexed user, uint256 poolId, uint256 amount, bool isLP);
+    event Staked(address indexed user, uint256 levelId, uint256 amount, bool isLP);
     event Unstaked(address indexed user, uint256 amount, uint256 penalty);
     event RewardsClaimed(address indexed user, uint256 amount);
     event CycleCompleted(address indexed user, uint256 cycleCount);
-    event PoolRateUpdated(uint256 poolId, uint256 newRate);
+    event LevelRateUpdated(uint256 levelId, uint256 baseRate, uint256 lpRate);
     event LPAutoCompound(address indexed user, uint256 amount);
+    event EquityLPStaked(address indexed user, uint256 hcfAmount, uint256 bsdtAmount);
     
     constructor(
         address _hcfToken,
@@ -108,65 +126,164 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         bsdtToken = IBSDT(_bsdtToken);
         usdcToken = IUSDC(_usdcToken);
         
-        // Initialize 5 pool levels
-        pools[0] = PoolInfo(40, 100 * 10**18, 1000 * 10**18, 0, true);     // 0.4%
-        pools[1] = PoolInfo(80, 1000 * 10**18, 5000 * 10**18, 0, true);    // 0.8%
-        pools[2] = PoolInfo(120, 5000 * 10**18, 10000 * 10**18, 0, true);  // 1.2%
-        pools[3] = PoolInfo(140, 10000 * 10**18, 50000 * 10**18, 0, true); // 1.4%
-        pools[4] = PoolInfo(160, 50000 * 10**18, type(uint256).max, 0, true); // 1.6%
+        // Initialize 真实需求的5等级质押系统 (10~10万HCF, 0.4%-0.8%)
+        // 真实需求: LP翻倍(2倍基础) + 1:5增益(额外4倍) = 总5倍
+        
+        // Level 0: 10 HCF, 0.4% → LP后0.8% (2倍基础)
+        stakingLevels[0] = StakingLevel(10 * 10**18, 40, 80, 10 * 10**18, 500, 0, true);
+        
+        // Level 1: 100 HCF, 0.5% → LP后1% (2倍基础)  
+        stakingLevels[1] = StakingLevel(100 * 10**18, 50, 100, 20 * 10**18, 500, 0, true);
+        
+        // Level 2: 1000 HCF, 0.6% → LP后1.2% (2倍基础)
+        stakingLevels[2] = StakingLevel(1000 * 10**18, 60, 120, 200 * 10**18, 500, 0, true);
+        
+        // Level 3: 10000 HCF, 0.7% → LP后1.4% (2倍基础)
+        stakingLevels[3] = StakingLevel(10000 * 10**18, 70, 140, 500 * 10**18, 500, 0, true);
+        
+        // Level 4: 100000 HCF, 0.8% → LP后1.6% (2倍基础)
+        stakingLevels[4] = StakingLevel(100000 * 10**18, 80, 160, 1000 * 10**18, 500, 0, true);
         
         // Initialize dual cycle config
         cycleConfig = CycleInfo(100, 500, 10000 * 10**18); // 1x base, 5x after cycle, 10k threshold
         
-        // Initialize pool rate multipliers to 100% (10000 basis points)
+        // Initialize level rate multipliers to 100% (10000 basis points)
         for (uint256 i = 0; i < 5; i++) {
-            poolRateMultipliers[i] = 10000;
+            levelRateMultipliers[i] = 10000;
         }
     }
     
-    // Staking Functions
-    function stake(uint256 _poolId, uint256 _amount, bool _isLP) external nonReentrant {
+    // 质押函数 (重构为真实需求)
+    function stake(uint256 _levelId, uint256 _amount, bool _isLP, uint256 _bsdtAmount) external nonReentrant {
         require(stakingEnabled, "Staking disabled");
-        require(_poolId < 5, "Invalid pool ID");
+        require(_levelId < 5, "Invalid level ID");
         require(_amount > 0, "Amount must be positive");
-        require(pools[_poolId].active, "Pool not active");
-        require(_amount >= pools[_poolId].minAmount, "Below minimum amount");
-        require(_amount <= pools[_poolId].maxAmount, "Above maximum amount");
+        require(stakingLevels[_levelId].active, "Level not active");
+        require(_amount >= stakingLevels[_levelId].minAmount, "Below minimum amount");
         
         UserInfo storage user = userInfo[msg.sender];
         
-        // Check purchase limits
+        // 检查限购 (前7天每天500枚)
         _checkPurchaseLimit(user, _amount);
         
-        // Transfer HCF tokens from user
-        require(hcfToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        // LP模式需要BSDT
+        if (_isLP) {
+            require(_bsdtAmount > 0, "LP mode requires BSDT");
+            require(bsdtToken.transferFrom(msg.sender, address(this), _bsdtAmount), "BSDT transfer failed");
+        }
         
-        // If user has existing stake in different pool, claim rewards first
-        if (user.amount > 0 && user.poolId != _poolId) {
+        // 转移HCF代币
+        require(hcfToken.transferFrom(msg.sender, address(this), _amount), "HCF transfer failed");
+        
+        // 如果有现有质押且等级不同，先提取奖励
+        if (user.amount > 0 && user.levelId != _levelId) {
             _claimRewards(msg.sender);
         }
         
-        // Update user info
+        // 更新用户信息
         if (user.amount == 0) {
             user.startTime = block.timestamp;
             user.lastClaim = block.timestamp;
-            user.poolId = _poolId;
+            user.levelId = _levelId;
         }
         
         user.amount += _amount;
         user.isLP = _isLP;
+        if (_isLP) {
+            user.lpHCFAmount += _amount;
+            user.lpBSDTAmount += _bsdtAmount;
+        }
         user.lastDepositTime = block.timestamp;
         _updateWeeklyDeposit(user, _amount);
         
-        // Update pool info
-        pools[_poolId].totalStaked += _amount;
+        // 更新等级信息
+        stakingLevels[_levelId].totalStaked += _amount;
         
-        // Auto-compound for LP staking
+        // LP模式自动复投
         if (_isLP) {
             _autoCompoundLP(msg.sender);
         }
         
-        emit Staked(msg.sender, _poolId, _amount, _isLP);
+        emit Staked(msg.sender, _levelId, _amount, _isLP);
+    }
+    
+    // 股权LP质押函数
+    function stakeEquityLP(uint256 _hcfAmount, uint256 _bsdtAmount) external nonReentrant {
+        require(stakingEnabled, "Staking disabled");
+        require(_hcfAmount > 0 && _bsdtAmount > 0, "Amounts must be positive");
+        require(equityLPCollector != address(0), "Equity LP collector not set");
+        
+        UserInfo storage user = userInfo[msg.sender];
+        
+        // 转移代币到归集账户
+        require(hcfToken.transferFrom(msg.sender, equityLPCollector, _hcfAmount), "HCF transfer failed");
+        require(bsdtToken.transferFrom(msg.sender, equityLPCollector, _bsdtAmount), "BSDT transfer failed");
+        
+        // 更新用户股权LP信息
+        user.isEquityLP = true;
+        user.amount += _hcfAmount; // 股权LP也计入质押量
+        user.lastDepositTime = block.timestamp;
+        
+        // TODO: 归集账户自动执行加LP操作
+        // 这里需要外部服务或者Keeper机制来处理
+        
+        emit EquityLPStaked(msg.sender, _hcfAmount, _bsdtAmount);
+    }
+    
+    // LP动态平衡机制
+    function checkLPBalance() external view returns (bool needRebalance, uint256 currentRatio) {
+        // TODO: 获取LP中的HCF占比
+        // 这里需要与Uniswap/PancakeSwap LP合约集成
+        // currentRatio = (LP中HCF数量 * 10000) / LP总价值
+        currentRatio = 5000; // 模拟50%
+        needRebalance = currentRatio < lpTargetRatio - 500 || currentRatio > lpTargetRatio + 500;
+        return (needRebalance, currentRatio);
+    }
+    
+    function rebalanceLP() external {
+        // TODO: LP自动平衡遗辑
+        // 1. 检查当前价格
+        // 2. 计算需要补充的HCF数量
+        // 3. 从合约中调用HCF补充LP
+        // 4. 调整质押奖励率
+        require(msg.sender == owner() || msg.sender == equityLPCollector, "Unauthorized");
+        
+        // 暂时留空，等待具体LP集成
+    }
+    
+    // 设置LP目标比例
+    function setLPTargetRatio(uint256 _ratio) external onlyOwner {
+        require(_ratio > 0 && _ratio < 10000, "Invalid ratio");
+        lpTargetRatio = _ratio;
+    }
+    
+    // 防暴跌机制
+    function updatePriceImpact(uint256 _priceChangePercent) external onlyOwner {
+        currentPriceImpact = _priceChangePercent;
+        
+        // 根据价格跌幅调整额外税率
+        if (_priceChangePercent >= 5000) { // 50%跌幅
+            additionalTaxRate = 3000; // +30%税率
+            productionReductionRate = 3000; // -30%产出
+        } else if (_priceChangePercent >= 3000) { // 30%跌幅
+            additionalTaxRate = 1500; // +15%税率
+            productionReductionRate = 1500; // -15%产出
+        } else if (_priceChangePercent >= 1000) { // 10%跌幅
+            additionalTaxRate = 500; // +5%税率
+            productionReductionRate = 500; // -5%产出
+        } else {
+            additionalTaxRate = 0;
+            productionReductionRate = 0;
+        }
+    }
+    
+    // 获取当前防暴跌状态
+    function getAntiDumpStatus() external view returns (
+        uint256 priceImpact,
+        uint256 additionalTax,
+        uint256 reductionRate
+    ) {
+        return (currentPriceImpact, additionalTaxRate, productionReductionRate);
     }
     
     function unstake(uint256 _amount) external nonReentrant {
@@ -181,9 +298,9 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         uint256 burnAmount = (_amount * BURN_PENALTY) / 10000;
         uint256 returnAmount = _amount - bnbPenalty - burnAmount;
         
-        // Update user and pool info
+        // Update user and level info
         user.amount -= _amount;
-        pools[user.poolId].totalStaked -= _amount;
+        stakingLevels[user.levelId].totalStaked -= _amount;
         
         // Transfer tokens
         require(hcfToken.transfer(msg.sender, returnAmount), "Transfer failed");
@@ -232,23 +349,31 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         UserInfo storage user = userInfo[_user];
         if (user.amount == 0) return 0;
         
-        PoolInfo storage pool = pools[user.poolId];
+        StakingLevel storage level = stakingLevels[user.levelId];
         uint256 timeDiff = block.timestamp - user.lastClaim;
         
-        // Base daily rate adjusted by backend multiplier
-        uint256 adjustedRate = (pool.dailyRate * poolRateMultipliers[user.poolId]) / 10000;
+        // 获取对应的日化率
+        uint256 currentRate = user.isLP ? level.lpRate : level.baseRate;
         
-        // Calculate base rewards
-        uint256 baseReward = (user.amount * adjustedRate * timeDiff) / (86400 * 10000);
+        // 计算基础奖励
+        uint256 baseReward = (user.amount * currentRate * timeDiff) / (86400 * 10000);
         
-        // Apply LP multiplier (2x)
-        if (user.isLP) {
-            baseReward *= 2;
+        // 应用减产机制
+        if (productionReductionRate > 0) {
+            baseReward = (baseReward * (10000 - productionReductionRate)) / 10000;
         }
         
-        // Apply cycle multiplier
-        uint256 multiplier = user.cycleCount > 0 ? cycleConfig.bonusMultiplier : cycleConfig.baseMultiplier;
-        baseReward = (baseReward * multiplier) / 100;
+        // LP模式墝外系数: 使用lpRate而非系数
+        // 已经在currentRate中应用了LP翻倍机制
+        // 再应用 1:5 额外增益 (lpCoefficient = 500 = 5倍)
+        if (user.isLP) {
+            baseReward = (baseReward * level.lpCoefficient) / 100;
+        }
+        
+        // 应用复投倍数 (按照等级设定)
+        if (user.compoundCount > 0) {
+            baseReward = baseReward * 100; // 100倍增益
+        }
         
         return baseReward;
     }
@@ -256,9 +381,11 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     function _checkCycleCompletion(address _user, uint256 _rewardAmount) internal {
         UserInfo storage user = userInfo[_user];
         
-        if (user.totalClaimed + _rewardAmount >= cycleConfig.cycleThreshold && user.cycleCount == 0) {
-            user.cycleCount = 1;
-            emit CycleCompleted(_user, user.cycleCount);
+        // 检查复投机制 (按照等级复投倍数)
+        StakingLevel storage level = stakingLevels[user.levelId];
+        if (user.totalClaimed >= level.compoundUnit && user.compoundCount == 0) {
+            user.compoundCount = 1;
+            emit CycleCompleted(_user, user.compoundCount);
         }
     }
     
@@ -315,17 +442,19 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     }
     
     // Admin Functions
-    function updatePoolRate(uint256 _poolId, uint256 _newRateMultiplier) external onlyOwner {
-        require(_poolId < 5, "Invalid pool ID");
-        require(_newRateMultiplier > 0, "Rate must be positive");
+    function updateLevelRates(uint256 _levelId, uint256 _baseRate, uint256 _lpRate) external onlyOwner {
+        require(_levelId < 5, "Invalid level ID");
+        require(_baseRate > 0, "Base rate must be positive");
+        require(_lpRate > 0, "LP rate must be positive");
         
-        poolRateMultipliers[_poolId] = _newRateMultiplier;
-        emit PoolRateUpdated(_poolId, _newRateMultiplier);
+        stakingLevels[_levelId].baseRate = _baseRate;
+        stakingLevels[_levelId].lpRate = _lpRate;
+        emit LevelRateUpdated(_levelId, _baseRate, _lpRate);
     }
     
-    function setPoolActive(uint256 _poolId, bool _active) external onlyOwner {
-        require(_poolId < 5, "Invalid pool ID");
-        pools[_poolId].active = _active;
+    function setLevelActive(uint256 _levelId, bool _active) external onlyOwner {
+        require(_levelId < 5, "Invalid level ID");
+        stakingLevels[_levelId].active = _active;
     }
     
     function setStakingEnabled(bool _enabled) external onlyOwner {
@@ -346,6 +475,10 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         referralContract = IHCFReferral(_referralContract);
     }
     
+    function setEquityLPCollector(address _collector) external onlyOwner {
+        equityLPCollector = _collector;
+    }
+    
     // Emergency functions
     function emergencyWithdraw() external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
@@ -353,7 +486,7 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         
         uint256 amount = user.amount;
         user.amount = 0;
-        pools[user.poolId].totalStaked -= amount;
+        stakingLevels[user.levelId].totalStaked -= amount;
         
         // Emergency withdrawal with higher penalty (50%)
         uint256 penaltyAmount = amount / 2;
@@ -370,48 +503,55 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     // View Functions
     function getUserInfo(address _user) external view returns (
         uint256 amount,
-        uint256 poolId,
+        uint256 levelId,
         uint256 pendingRewards,
         uint256 totalClaimed,
         bool isLP,
-        uint256 cycleCount
+        uint256 compoundCount,
+        bool isEquityLP,
+        uint256 lpHCFAmount,
+        uint256 lpBSDTAmount
     ) {
         UserInfo storage user = userInfo[_user];
         return (
             user.amount,
-            user.poolId,
+            user.levelId,
             calculatePendingRewards(_user),
             user.totalClaimed,
             user.isLP,
-            user.cycleCount
+            user.compoundCount,
+            user.isEquityLP,
+            user.lpHCFAmount,
+            user.lpBSDTAmount
         );
     }
     
-    function getPoolInfo(uint256 _poolId) external view returns (
-        uint256 dailyRate,
-        uint256 adjustedRate,
+    function getLevelInfo(uint256 _levelId) external view returns (
         uint256 minAmount,
-        uint256 maxAmount,
+        uint256 baseRate,
+        uint256 lpRate,
+        uint256 compoundUnit,
+        uint256 lpCoefficient,
         uint256 totalStaked,
         bool active
     ) {
-        require(_poolId < 5, "Invalid pool ID");
-        PoolInfo storage pool = pools[_poolId];
-        uint256 adjusted = (pool.dailyRate * poolRateMultipliers[_poolId]) / 10000;
+        require(_levelId < 5, "Invalid level ID");
+        StakingLevel storage level = stakingLevels[_levelId];
         
         return (
-            pool.dailyRate,
-            adjusted,
-            pool.minAmount,
-            pool.maxAmount,
-            pool.totalStaked,
-            pool.active
+            level.minAmount,
+            level.baseRate,
+            level.lpRate,
+            level.compoundUnit,
+            level.lpCoefficient,
+            level.totalStaked,
+            level.active
         );
     }
     
     function getTotalStaked() external view returns (uint256 total) {
         for (uint256 i = 0; i < 5; i++) {
-            total += pools[i].totalStaked;
+            total += stakingLevels[i].totalStaked;
         }
     }
 }

@@ -64,4 +64,400 @@ contract HCFBurnMechanism is Ownable, ReentrancyGuard {
         uint256 teamBurnRate;           // 团队奖励烧伤率 (5%)
         uint256 stakingCapMultiplier;   // 质押封顶倍数 (100% = 10000)
         bool burnMechanismActive;       // 烧伤机制激活状态
-    }\n    \n    BurnConfig public burnConfig;\n    \n    // 用户烧伤记录\n    struct UserBurnRecord {\n        uint256 stakingAmount;          // 用户质押金额\n        uint256 dailyOutputCap;         // 日产出封顶\n        uint256 totalReferralRewards;   // 累计推荐奖励\n        uint256 totalTeamRewards;       // 累计团队奖励\n        uint256 burnedReferralRewards;  // 被烧伤的推荐奖励\n        uint256 burnedTeamRewards;      // 被烧伤的团队奖励\n        uint256 lastUpdateTime;         // 最后更新时间\n    }\n    \n    mapping(address => UserBurnRecord) public userBurnRecords;\n    \n    // 全局统计\n    uint256 public totalBurnedReferralRewards;  // 全网推荐奖励烧伤总量\n    uint256 public totalBurnedTeamRewards;      // 全网团队奖励烧伤总量\n    uint256 public totalStakingCap;             // 全网质押封顶总量\n    \n    // 质押等级日化率 (用于计算日产出)\n    mapping(uint256 => uint256) public levelDailyRates; // levelId => daily rate (bp)\n    \n    // ============ 事件 ============\n    \n    event BurnCapCalculated(address indexed user, uint256 stakingAmount, uint256 dailyOutputCap);\n    event RewardBurned(address indexed user, uint256 rewardType, uint256 originalAmount, uint256 burnedAmount, uint256 finalAmount);\n    event BurnConfigUpdated(uint256 referralBurnRate, uint256 teamBurnRate, uint256 stakingCapMultiplier);\n    event BurnMechanismToggled(bool active);\n    \n    // ============ 构造函数 ============\n    \n    constructor(\n        address _hcfToken,\n        address _stakingContract,\n        address _referralContract\n    ) Ownable(msg.sender) {\n        hcfToken = IHCFToken(_hcfToken);\n        stakingContract = IHCFStaking(_stakingContract);\n        referralContract = IHCFReferral(_referralContract);\n        \n        // 初始化烧伤配置\n        burnConfig = BurnConfig({\n            referralBurnRate: 1000,         // 10%\n            teamBurnRate: 500,              // 5%\n            stakingCapMultiplier: 10000,    // 100% (质押金额的100%作为封顶)\n            burnMechanismActive: true\n        });\n        \n        // 初始化等级日化率 (与HCFStaking保持一致)\n        levelDailyRates[0] = 40;    // 0.4%\n        levelDailyRates[1] = 40;    // 0.4% \n        levelDailyRates[2] = 50;    // 0.5%\n        levelDailyRates[3] = 40;    // 0.4% (拆分级别)\n    }\n    \n    // ============ 核心烧伤逻辑 ============\n    \n    /**\n     * @dev 计算用户的烧伤上限\n     * @param _user 用户地址\n     * @return dailyOutputCap 日产出封顶金额\n     */\n    function calculateBurnCap(address _user) public view returns (uint256 dailyOutputCap) {\n        if (!burnConfig.burnMechanismActive) {\n            return type(uint256).max; // 烧伤机制关闭时无上限\n        }\n        \n        // 获取用户质押信息\n        (uint256 stakingAmount, uint256 levelId, , , bool isLP, , , , ) = stakingContract.getUserInfo(_user);\n        \n        if (stakingAmount == 0) {\n            return 0; // 未质押用户无奖励上限\n        }\n        \n        // 计算基础日产出\n        uint256 dailyRate = levelDailyRates[levelId];\n        uint256 baseDailyOutput = (stakingAmount * dailyRate) / 10000;\n        \n        // LP模式额外增益\n        if (isLP) {\n            baseDailyOutput = (baseDailyOutput * 500) / 100; // 5倍增益 (1:5系数)\n        }\n        \n        // 应用质押封顶倍数\n        dailyOutputCap = (baseDailyOutput * burnConfig.stakingCapMultiplier) / 10000;\n        \n        return dailyOutputCap;\n    }\n    \n    /**\n     * @dev 处理推荐奖励烧伤\n     * @param _user 用户地址\n     * @param _originalReward 原始推荐奖励\n     * @return finalReward 烧伤后的最终奖励\n     */\n    function processReferralRewardBurn(address _user, uint256 _originalReward) \n        external \n        returns (uint256 finalReward) {\n        require(\n            msg.sender == address(referralContract), \n            \"Only referral contract can call\"\n        );\n        \n        if (!burnConfig.burnMechanismActive || _originalReward == 0) {\n            return _originalReward;\n        }\n        \n        UserBurnRecord storage record = userBurnRecords[_user];\n        uint256 dailyOutputCap = calculateBurnCap(_user);\n        \n        // 更新用户质押信息\n        _updateUserStakingInfo(_user, record);\n        \n        // 检查是否超过烧伤上限\n        uint256 todayRewards = _getTodayRewards(_user, record);\n        uint256 newTotalRewards = todayRewards + _originalReward;\n        \n        if (newTotalRewards <= dailyOutputCap) {\n            // 未超过上限，无需烧伤\n            record.totalReferralRewards += _originalReward;\n            return _originalReward;\n        }\n        \n        // 超过上限，计算烧伤\n        uint256 excessReward = newTotalRewards - dailyOutputCap;\n        uint256 burnAmount = (excessReward * burnConfig.referralBurnRate) / 10000;\n        finalReward = _originalReward - burnAmount;\n        \n        // 更新记录\n        record.totalReferralRewards += _originalReward;\n        record.burnedReferralRewards += burnAmount;\n        record.lastUpdateTime = block.timestamp;\n        \n        // 更新全局统计\n        totalBurnedReferralRewards += burnAmount;\n        \n        emit RewardBurned(_user, 1, _originalReward, burnAmount, finalReward);\n        \n        return finalReward;\n    }\n    \n    /**\n     * @dev 处理团队奖励烧伤\n     * @param _user 用户地址\n     * @param _originalReward 原始团队奖励\n     * @return finalReward 烧伤后的最终奖励\n     */\n    function processTeamRewardBurn(address _user, uint256 _originalReward) \n        external \n        returns (uint256 finalReward) {\n        require(\n            msg.sender == address(referralContract), \n            \"Only referral contract can call\"\n        );\n        \n        if (!burnConfig.burnMechanismActive || _originalReward == 0) {\n            return _originalReward;\n        }\n        \n        UserBurnRecord storage record = userBurnRecords[_user];\n        uint256 dailyOutputCap = calculateBurnCap(_user);\n        \n        // 更新用户质押信息\n        _updateUserStakingInfo(_user, record);\n        \n        // 检查是否超过烧伤上限\n        uint256 todayRewards = _getTodayRewards(_user, record);\n        uint256 newTotalRewards = todayRewards + _originalReward;\n        \n        if (newTotalRewards <= dailyOutputCap) {\n            // 未超过上限，无需烧伤\n            record.totalTeamRewards += _originalReward;\n            return _originalReward;\n        }\n        \n        // 超过上限，计算烧伤\n        uint256 excessReward = newTotalRewards - dailyOutputCap;\n        uint256 burnAmount = (excessReward * burnConfig.teamBurnRate) / 10000;\n        finalReward = _originalReward - burnAmount;\n        \n        // 更新记录\n        record.totalTeamRewards += _originalReward;\n        record.burnedTeamRewards += burnAmount;\n        record.lastUpdateTime = block.timestamp;\n        \n        // 更新全局统计\n        totalBurnedTeamRewards += burnAmount;\n        \n        emit RewardBurned(_user, 2, _originalReward, burnAmount, finalReward);\n        \n        return finalReward;\n    }\n    \n    // ============ 辅助函数 ============\n    \n    /**\n     * @dev 获取用户今日奖励总额\n     */\n    function _getTodayRewards(address _user, UserBurnRecord storage record) \n        internal \n        view \n        returns (uint256) {\n        // 如果不是同一天，重置计数\n        if (_isNewDay(record.lastUpdateTime)) {\n            return 0;\n        }\n        \n        // 返回今日已获得的奖励\n        return record.totalReferralRewards + record.totalTeamRewards;\n    }\n    \n    /**\n     * @dev 检查是否为新的一天\n     */\n    function _isNewDay(uint256 _lastUpdateTime) internal view returns (bool) {\n        return (block.timestamp / 86400) != (_lastUpdateTime / 86400);\n    }\n    \n    /**\n     * @dev 更新用户质押信息\n     */\n    function _updateUserStakingInfo(address _user, UserBurnRecord storage record) internal {\n        (uint256 stakingAmount, , , , , , , , ) = stakingContract.getUserInfo(_user);\n        \n        if (stakingAmount != record.stakingAmount) {\n            record.stakingAmount = stakingAmount;\n            record.dailyOutputCap = calculateBurnCap(_user);\n            \n            emit BurnCapCalculated(_user, stakingAmount, record.dailyOutputCap);\n        }\n    }\n    \n    // ============ 查询函数 ============\n    \n    /**\n     * @dev 获取用户烧伤状态\n     */\n    function getUserBurnStatus(address _user) external view returns (\n        uint256 stakingAmount,\n        uint256 dailyOutputCap,\n        uint256 todayRewards,\n        uint256 remainingCap,\n        uint256 totalBurnedRewards,\n        bool isCapReached\n    ) {\n        UserBurnRecord memory record = userBurnRecords[_user];\n        \n        stakingAmount = record.stakingAmount;\n        dailyOutputCap = calculateBurnCap(_user);\n        todayRewards = _isNewDay(record.lastUpdateTime) ? 0 : \n                      record.totalReferralRewards + record.totalTeamRewards;\n        remainingCap = dailyOutputCap > todayRewards ? dailyOutputCap - todayRewards : 0;\n        totalBurnedRewards = record.burnedReferralRewards + record.burnedTeamRewards;\n        isCapReached = todayRewards >= dailyOutputCap;\n        \n        return (\n            stakingAmount,\n            dailyOutputCap,\n            todayRewards,\n            remainingCap,\n            totalBurnedRewards,\n            isCapReached\n        );\n    }\n    \n    /**\n     * @dev 获取全局烧伤统计\n     */\n    function getGlobalBurnStats() external view returns (\n        uint256 totalReferralBurned,\n        uint256 totalTeamBurned,\n        uint256 totalBurned,\n        uint256 activeBurnMechanisms,\n        bool mechanismActive\n    ) {\n        return (\n            totalBurnedReferralRewards,\n            totalBurnedTeamRewards,\n            totalBurnedReferralRewards + totalBurnedTeamRewards,\n            totalStakingCap,\n            burnConfig.burnMechanismActive\n        );\n    }\n    \n    /**\n     * @dev 模拟奖励烧伤计算\n     * @param _user 用户地址\n     * @param _rewardAmount 奖励金额\n     * @param _rewardType 奖励类型 (1:推荐 2:团队)\n     * @return originalAmount 原始奖励\n     * @return burnAmount 烧伤金额\n     * @return finalAmount 最终奖励\n     */\n    function simulateBurn(address _user, uint256 _rewardAmount, uint256 _rewardType) \n        external \n        view \n        returns (uint256 originalAmount, uint256 burnAmount, uint256 finalAmount) {\n        \n        originalAmount = _rewardAmount;\n        \n        if (!burnConfig.burnMechanismActive || _rewardAmount == 0) {\n            return (originalAmount, 0, originalAmount);\n        }\n        \n        UserBurnRecord memory record = userBurnRecords[_user];\n        uint256 dailyOutputCap = calculateBurnCap(_user);\n        uint256 todayRewards = _isNewDay(record.lastUpdateTime) ? 0 : \n                              record.totalReferralRewards + record.totalTeamRewards;\n        uint256 newTotalRewards = todayRewards + _rewardAmount;\n        \n        if (newTotalRewards <= dailyOutputCap) {\n            return (originalAmount, 0, originalAmount);\n        }\n        \n        // 计算烧伤\n        uint256 excessReward = newTotalRewards - dailyOutputCap;\n        uint256 burnRate = _rewardType == 1 ? burnConfig.referralBurnRate : burnConfig.teamBurnRate;\n        burnAmount = (excessReward * burnRate) / 10000;\n        finalAmount = originalAmount - burnAmount;\n        \n        return (originalAmount, burnAmount, finalAmount);\n    }\n    \n    // ============ 管理函数 ============\n    \n    /**\n     * @dev 更新烧伤配置\n     */\n    function updateBurnConfig(\n        uint256 _referralBurnRate,\n        uint256 _teamBurnRate,\n        uint256 _stakingCapMultiplier\n    ) external onlyOwner {\n        require(_referralBurnRate <= 5000, \"Referral burn rate too high\"); // Max 50%\n        require(_teamBurnRate <= 5000, \"Team burn rate too high\"); // Max 50%\n        require(_stakingCapMultiplier > 0, \"Invalid cap multiplier\");\n        \n        burnConfig.referralBurnRate = _referralBurnRate;\n        burnConfig.teamBurnRate = _teamBurnRate;\n        burnConfig.stakingCapMultiplier = _stakingCapMultiplier;\n        \n        emit BurnConfigUpdated(_referralBurnRate, _teamBurnRate, _stakingCapMultiplier);\n    }\n    \n    /**\n     * @dev 切换烧伤机制开关\n     */\n    function toggleBurnMechanism(bool _active) external onlyOwner {\n        burnConfig.burnMechanismActive = _active;\n        emit BurnMechanismToggled(_active);\n    }\n    \n    /**\n     * @dev 更新等级日化率\n     */\n    function updateLevelDailyRates(uint256[] memory _levelIds, uint256[] memory _rates) external onlyOwner {\n        require(_levelIds.length == _rates.length, \"Arrays length mismatch\");\n        \n        for (uint256 i = 0; i < _levelIds.length; i++) {\n            levelDailyRates[_levelIds[i]] = _rates[i];\n        }\n    }\n    \n    /**\n     * @dev 更新合约地址\n     */\n    function updateContracts(\n        address _stakingContract,\n        address _referralContract\n    ) external onlyOwner {\n        if (_stakingContract != address(0)) {\n            stakingContract = IHCFStaking(_stakingContract);\n        }\n        if (_referralContract != address(0)) {\n            referralContract = IHCFReferral(_referralContract);\n        }\n    }\n    \n    /**\n     * @dev 重置用户烧伤记录 (紧急情况)\n     */\n    function resetUserBurnRecord(address _user) external onlyOwner {\n        delete userBurnRecords[_user];\n    }\n    \n    /**\n     * @dev 批量重置用户烧伤记录\n     */\n    function batchResetUserBurnRecords(address[] memory _users) external onlyOwner {\n        for (uint256 i = 0; i < _users.length; i++) {\n            delete userBurnRecords[_users[i]];\n        }\n    }\n}
+    }
+    
+    BurnConfig public burnConfig;
+    
+    // 用户烧伤记录
+    struct UserBurnRecord {
+        uint256 stakingAmount;          // 用户质押金额
+        uint256 dailyOutputCap;         // 日产出封顶
+        uint256 totalReferralRewards;   // 累计推荐奖励
+        uint256 totalTeamRewards;       // 累计团队奖励
+        uint256 burnedReferralRewards;  // 被烧伤的推荐奖励
+        uint256 burnedTeamRewards;      // 被烧伤的团队奖励
+        uint256 lastUpdateTime;         // 最后更新时间
+    }
+    
+    mapping(address => UserBurnRecord) public userBurnRecords;
+    
+    // 全局统计
+    uint256 public totalBurnedReferralRewards;  // 全网推荐奖励烧伤总量
+    uint256 public totalBurnedTeamRewards;      // 全网团队奖励烧伤总量
+    uint256 public totalStakingCap;             // 全网质押封顶总量
+    
+    // 质押等级日化率 (用于计算日产出)
+    mapping(uint256 => uint256) public levelDailyRates; // levelId => daily rate (bp)
+    
+    // ============ 事件 ============
+    
+    event BurnCapCalculated(address indexed user, uint256 stakingAmount, uint256 dailyOutputCap);
+    event RewardBurned(address indexed user, uint256 rewardType, uint256 originalAmount, uint256 burnedAmount, uint256 finalAmount);
+    event BurnConfigUpdated(uint256 referralBurnRate, uint256 teamBurnRate, uint256 stakingCapMultiplier);
+    event BurnMechanismToggled(bool active);
+    
+    // ============ 构造函数 ============
+    
+    constructor(
+        address _hcfToken,
+        address _stakingContract,
+        address _referralContract
+    ) Ownable(msg.sender) {
+        hcfToken = IHCFToken(_hcfToken);
+        stakingContract = IHCFStaking(_stakingContract);
+        referralContract = IHCFReferral(_referralContract);
+        
+        // 初始化烧伤配置
+        burnConfig = BurnConfig({
+            referralBurnRate: 1000,         // 10%
+            teamBurnRate: 500,              // 5%
+            stakingCapMultiplier: 10000,    // 100% (质押金额的100%作为封顶)
+            burnMechanismActive: true
+        });
+        
+        // 初始化等级日化率 (与HCFStaking保持一致)
+        levelDailyRates[0] = 40;    // 0.4%
+        levelDailyRates[1] = 40;    // 0.4% 
+        levelDailyRates[2] = 50;    // 0.5%
+        levelDailyRates[3] = 40;    // 0.4% (拆分级别)
+    }
+    
+    // ============ 核心烧伤逻辑 ============
+    
+    /**
+     * @dev 计算用户的烧伤上限
+     * @param _user 用户地址
+     * @return dailyOutputCap 日产出封顶金额
+     */
+    function calculateBurnCap(address _user) public view returns (uint256 dailyOutputCap) {
+        if (!burnConfig.burnMechanismActive) {
+            return type(uint256).max; // 烧伤机制关闭时无上限
+        }
+        
+        // 获取用户质押信息
+        (uint256 stakingAmount, uint256 levelId, , , bool isLP, , , , ) = stakingContract.getUserInfo(_user);
+        
+        if (stakingAmount == 0) {
+            return 0; // 未质押用户无奖励上限
+        }
+        
+        // 计算基础日产出
+        uint256 dailyRate = levelDailyRates[levelId];
+        uint256 baseDailyOutput = (stakingAmount * dailyRate) / 10000;
+        
+        // LP模式额外增益
+        if (isLP) {
+            baseDailyOutput = (baseDailyOutput * 500) / 100; // 5倍增益 (1:5系数)
+        }
+        
+        // 应用质押封顶倍数
+        dailyOutputCap = (baseDailyOutput * burnConfig.stakingCapMultiplier) / 10000;
+        
+        return dailyOutputCap;
+    }
+    
+    /**
+     * @dev 处理推荐奖励烧伤
+     * @param _user 用户地址
+     * @param _originalReward 原始推荐奖励
+     * @return finalReward 烧伤后的最终奖励
+     */
+    function processReferralRewardBurn(address _user, uint256 _originalReward) 
+        external 
+        returns (uint256 finalReward) {
+        require(
+            msg.sender == address(referralContract), 
+            "Only referral contract can call"
+        );
+        
+        if (!burnConfig.burnMechanismActive || _originalReward == 0) {
+            return _originalReward;
+        }
+        
+        UserBurnRecord storage record = userBurnRecords[_user];
+        uint256 dailyOutputCap = calculateBurnCap(_user);
+        
+        // 更新用户质押信息
+        _updateUserStakingInfo(_user, record);
+        
+        // 检查是否超过烧伤上限
+        uint256 todayRewards = _getTodayRewards(_user, record);
+        uint256 newTotalRewards = todayRewards + _originalReward;
+        
+        if (newTotalRewards <= dailyOutputCap) {
+            // 未超过上限，无需烧伤
+            record.totalReferralRewards += _originalReward;
+            return _originalReward;
+        }
+        
+        // 超过上限，计算烧伤
+        uint256 excessReward = newTotalRewards - dailyOutputCap;
+        uint256 burnAmount = (excessReward * burnConfig.referralBurnRate) / 10000;
+        finalReward = _originalReward - burnAmount;
+        
+        // 更新记录
+        record.totalReferralRewards += _originalReward;
+        record.burnedReferralRewards += burnAmount;
+        record.lastUpdateTime = block.timestamp;
+        
+        // 更新全局统计
+        totalBurnedReferralRewards += burnAmount;
+        
+        emit RewardBurned(_user, 1, _originalReward, burnAmount, finalReward);
+        
+        return finalReward;
+    }
+    
+    /**
+     * @dev 处理团队奖励烧伤
+     * @param _user 用户地址
+     * @param _originalReward 原始团队奖励
+     * @return finalReward 烧伤后的最终奖励
+     */
+    function processTeamRewardBurn(address _user, uint256 _originalReward) 
+        external 
+        returns (uint256 finalReward) {
+        require(
+            msg.sender == address(referralContract), 
+            "Only referral contract can call"
+        );
+        
+        if (!burnConfig.burnMechanismActive || _originalReward == 0) {
+            return _originalReward;
+        }
+        
+        UserBurnRecord storage record = userBurnRecords[_user];
+        uint256 dailyOutputCap = calculateBurnCap(_user);
+        
+        // 更新用户质押信息
+        _updateUserStakingInfo(_user, record);
+        
+        // 检查是否超过烧伤上限
+        uint256 todayRewards = _getTodayRewards(_user, record);
+        uint256 newTotalRewards = todayRewards + _originalReward;
+        
+        if (newTotalRewards <= dailyOutputCap) {
+            // 未超过上限，无需烧伤
+            record.totalTeamRewards += _originalReward;
+            return _originalReward;
+        }
+        
+        // 超过上限，计算烧伤
+        uint256 excessReward = newTotalRewards - dailyOutputCap;
+        uint256 burnAmount = (excessReward * burnConfig.teamBurnRate) / 10000;
+        finalReward = _originalReward - burnAmount;
+        
+        // 更新记录
+        record.totalTeamRewards += _originalReward;
+        record.burnedTeamRewards += burnAmount;
+        record.lastUpdateTime = block.timestamp;
+        
+        // 更新全局统计
+        totalBurnedTeamRewards += burnAmount;
+        
+        emit RewardBurned(_user, 2, _originalReward, burnAmount, finalReward);
+        
+        return finalReward;
+    }
+    
+    // ============ 辅助函数 ============
+    
+    /**
+     * @dev 获取用户今日奖励总额
+     */
+    function _getTodayRewards(address _user, UserBurnRecord storage record) 
+        internal 
+        view 
+        returns (uint256) {
+        // 如果不是同一天，重置计数
+        if (_isNewDay(record.lastUpdateTime)) {
+            return 0;
+        }
+        
+        // 返回今日已获得的奖励
+        return record.totalReferralRewards + record.totalTeamRewards;
+    }
+    
+    /**
+     * @dev 检查是否为新的一天
+     */
+    function _isNewDay(uint256 _lastUpdateTime) internal view returns (bool) {
+        return (block.timestamp / 86400) != (_lastUpdateTime / 86400);
+    }
+    
+    /**
+     * @dev 更新用户质押信息
+     */
+    function _updateUserStakingInfo(address _user, UserBurnRecord storage record) internal {
+        (uint256 stakingAmount, , , , , , , , ) = stakingContract.getUserInfo(_user);
+        
+        if (stakingAmount != record.stakingAmount) {
+            record.stakingAmount = stakingAmount;
+            record.dailyOutputCap = calculateBurnCap(_user);
+            
+            emit BurnCapCalculated(_user, stakingAmount, record.dailyOutputCap);
+        }
+    }
+    
+    // ============ 查询函数 ============
+    
+    /**
+     * @dev 获取用户烧伤状态
+     */
+    function getUserBurnStatus(address _user) external view returns (
+        uint256 stakingAmount,
+        uint256 dailyOutputCap,
+        uint256 todayRewards,
+        uint256 remainingCap,
+        uint256 totalBurnedRewards,
+        bool isCapReached
+    ) {
+        UserBurnRecord memory record = userBurnRecords[_user];
+        
+        stakingAmount = record.stakingAmount;
+        dailyOutputCap = calculateBurnCap(_user);
+        todayRewards = _isNewDay(record.lastUpdateTime) ? 0 : 
+                      record.totalReferralRewards + record.totalTeamRewards;
+        remainingCap = dailyOutputCap > todayRewards ? dailyOutputCap - todayRewards : 0;
+        totalBurnedRewards = record.burnedReferralRewards + record.burnedTeamRewards;
+        isCapReached = todayRewards >= dailyOutputCap;
+        
+        return (
+            stakingAmount,
+            dailyOutputCap,
+            todayRewards,
+            remainingCap,
+            totalBurnedRewards,
+            isCapReached
+        );
+    }
+    
+    /**
+     * @dev 获取全局烧伤统计
+     */
+    function getGlobalBurnStats() external view returns (
+        uint256 totalReferralBurned,
+        uint256 totalTeamBurned,
+        uint256 totalBurned,
+        uint256 activeBurnMechanisms,
+        bool mechanismActive
+    ) {
+        return (
+            totalBurnedReferralRewards,
+            totalBurnedTeamRewards,
+            totalBurnedReferralRewards + totalBurnedTeamRewards,
+            totalStakingCap,
+            burnConfig.burnMechanismActive
+        );
+    }
+    
+    /**
+     * @dev 模拟奖励烧伤计算
+     * @param _user 用户地址
+     * @param _rewardAmount 奖励金额
+     * @param _rewardType 奖励类型 (1:推荐 2:团队)
+     * @return originalAmount 原始奖励
+     * @return burnAmount 烧伤金额
+     * @return finalAmount 最终奖励
+     */
+    function simulateBurn(address _user, uint256 _rewardAmount, uint256 _rewardType) 
+        external 
+        view 
+        returns (uint256 originalAmount, uint256 burnAmount, uint256 finalAmount) {
+        
+        originalAmount = _rewardAmount;
+        
+        if (!burnConfig.burnMechanismActive || _rewardAmount == 0) {
+            return (originalAmount, 0, originalAmount);
+        }
+        
+        UserBurnRecord memory record = userBurnRecords[_user];
+        uint256 dailyOutputCap = calculateBurnCap(_user);
+        uint256 todayRewards = _isNewDay(record.lastUpdateTime) ? 0 : 
+                              record.totalReferralRewards + record.totalTeamRewards;
+        uint256 newTotalRewards = todayRewards + _rewardAmount;
+        
+        if (newTotalRewards <= dailyOutputCap) {
+            return (originalAmount, 0, originalAmount);
+        }
+        
+        // 计算烧伤
+        uint256 excessReward = newTotalRewards - dailyOutputCap;
+        uint256 burnRate = _rewardType == 1 ? burnConfig.referralBurnRate : burnConfig.teamBurnRate;
+        burnAmount = (excessReward * burnRate) / 10000;
+        finalAmount = originalAmount - burnAmount;
+        
+        return (originalAmount, burnAmount, finalAmount);
+    }
+    
+    // ============ 管理函数 ============
+    
+    /**
+     * @dev 更新烧伤配置
+     */
+    function updateBurnConfig(
+        uint256 _referralBurnRate,
+        uint256 _teamBurnRate,
+        uint256 _stakingCapMultiplier
+    ) external onlyOwner {
+        require(_referralBurnRate <= 5000, "Referral burn rate too high"); // Max 50%
+        require(_teamBurnRate <= 5000, "Team burn rate too high"); // Max 50%
+        require(_stakingCapMultiplier > 0, "Invalid cap multiplier");
+        
+        burnConfig.referralBurnRate = _referralBurnRate;
+        burnConfig.teamBurnRate = _teamBurnRate;
+        burnConfig.stakingCapMultiplier = _stakingCapMultiplier;
+        
+        emit BurnConfigUpdated(_referralBurnRate, _teamBurnRate, _stakingCapMultiplier);
+    }
+    
+    /**
+     * @dev 切换烧伤机制开关
+     */
+    function toggleBurnMechanism(bool _active) external onlyOwner {
+        burnConfig.burnMechanismActive = _active;
+        emit BurnMechanismToggled(_active);
+    }
+    
+    /**
+     * @dev 更新等级日化率
+     */
+    function updateLevelDailyRates(uint256[] memory _levelIds, uint256[] memory _rates) external onlyOwner {
+        require(_levelIds.length == _rates.length, "Arrays length mismatch");
+        
+        for (uint256 i = 0; i < _levelIds.length; i++) {
+            levelDailyRates[_levelIds[i]] = _rates[i];
+        }
+    }
+    
+    /**
+     * @dev 更新合约地址
+     */
+    function updateContracts(
+        address _stakingContract,
+        address _referralContract
+    ) external onlyOwner {
+        if (_stakingContract != address(0)) {
+            stakingContract = IHCFStaking(_stakingContract);
+        }
+        if (_referralContract != address(0)) {
+            referralContract = IHCFReferral(_referralContract);
+        }
+    }
+    
+    /**
+     * @dev 重置用户烧伤记录 (紧急情况)
+     */
+    function resetUserBurnRecord(address _user) external onlyOwner {
+        delete userBurnRecords[_user];
+    }
+    
+    /**
+     * @dev 批量重置用户烧伤记录
+     */
+    function batchResetUserBurnRecords(address[] memory _users) external onlyOwner {
+        for (uint256 i = 0; i < _users.length; i++) {
+            delete userBurnRecords[_users[i]];
+        }
+    }
+}

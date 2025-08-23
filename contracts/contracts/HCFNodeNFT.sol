@@ -233,9 +233,16 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev 批量更新所有活跃节点的算力
+     * @dev 批量更新所有活跃节点的算力 (外部调用)
      */
     function updateAllNodesComputingPower() external {
+        _updateAllNodesComputingPower();
+    }
+    
+    /**
+     * @dev 批量更新所有活跃节点的算力 (内部调用)
+     */
+    function _updateAllNodesComputingPower() internal {
         for (uint256 i = 1; i <= currentNodeId; i++) {
             if (nodes[i].isActive) {
                 address nodeOwner = nodes[i].owner;
@@ -262,7 +269,7 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         emit MaxHCFUpdated(oldMaxHCF, _maxHCF);
         
         // 更新所有节点算力
-        updateAllNodesComputingPower();
+        _updateAllNodesComputingPower();
     }
     
     /**
@@ -287,10 +294,10 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
         
         NodeInfo memory node = nodes[_nodeId];
-        uint256 totalRewards = node.totalSlippageRewards + 
-                             node.totalWithdrawalFeeRewards + 
-                             node.totalStakingRewards + 
-                             node.totalAntiDumpRewards;
+        uint256 calculatedRewards = node.totalSlippageRewards + 
+                                  node.totalWithdrawalFeeRewards + 
+                                  node.totalStakingRewards + 
+                                  node.totalAntiDumpRewards;
         
         return (
             node.nodeId,
@@ -298,7 +305,7 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
             node.isActive,
             node.computingPower,
             node.activationTime,
-            totalRewards
+            calculatedRewards
         );
     }
     
@@ -428,7 +435,7 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     /**
      * @dev 获取节点详细信息
      */
-    function getNodeInfo(uint256 _nodeId) external view returns (
+    function getNodeDetails(uint256 _nodeId) external view returns (
         address owner,
         bool isActive,
         uint256 applicationTime,

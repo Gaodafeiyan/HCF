@@ -363,14 +363,14 @@ contract HCFImpermanentLossProtection is Ownable, ReentrancyGuard {
         }
         
         UserLPData memory userData = userLPData[_user];
-        uint256 currentLoss = calculateImpermanentLoss(_user);
+        uint256 calculatedLoss = calculateImpermanentLoss(_user);
         bool canClaimNow = block.timestamp >= userData.lastClaimTime + CLAIM_COOLDOWN && 
-                          currentLoss >= LOSS_THRESHOLD;
+                          calculatedLoss >= LOSS_THRESHOLD;
         
         return (
             userData.isActive,
             userData.initialLPValue,
-            currentLoss,
+            calculatedLoss,
             userData.lastClaimTime,
             userData.totalCompensationReceived,
             canClaimNow

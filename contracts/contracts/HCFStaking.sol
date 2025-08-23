@@ -416,7 +416,7 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         
         // Auto-add to LP (simplified - in practice would interact with DEX)
         user.amount += pending;
-        pools[user.poolId].totalStaked += pending;
+        stakingLevels[user.levelId].totalStaked += pending;
         
         // Mint the rewards for compounding
         hcfToken.releaseMiningRewards(address(this), pending);

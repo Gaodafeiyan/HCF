@@ -130,19 +130,59 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         // LP配比1:5增益机制
         
         // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数10
-        stakingLevels[0] = StakingLevel(10 * 10**18, 40, 80, 10 * 10**18, 500, 0, true);
+        stakingLevels[0] = StakingLevel({
+            minAmount: 10 * 10**18,
+            baseRate: 40,
+            lpRate: 80,
+            compoundUnit: 10 * 10**18,
+            lpCoefficient: 500,
+            totalStaked: 0,
+            active: true
+        });
         
         // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数20
-        stakingLevels[1] = StakingLevel(100 * 10**18, 40, 80, 20 * 10**18, 500, 0, true);
+        stakingLevels[1] = StakingLevel({
+            minAmount: 100 * 10**18,
+            baseRate: 40,
+            lpRate: 80,
+            compoundUnit: 20 * 10**18,
+            lpCoefficient: 500,
+            totalStaked: 0,
+            active: true
+        });
         
         // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础), 复投倍数200
-        stakingLevels[2] = StakingLevel(1000 * 10**18, 50, 100, 200 * 10**18, 500, 0, true);
+        stakingLevels[2] = StakingLevel({
+            minAmount: 1000 * 10**18,
+            baseRate: 50,
+            lpRate: 100,
+            compoundUnit: 200 * 10**18,
+            lpCoefficient: 500,
+            totalStaked: 0,
+            active: true
+        });
         
         // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础), 复投倍数2000
-        stakingLevels[3] = StakingLevel(10000 * 10**18, 60, 120, 2000 * 10**18, 500, 0, true);
+        stakingLevels[3] = StakingLevel({
+            minAmount: 10000 * 10**18,
+            baseRate: 60,
+            lpRate: 120,
+            compoundUnit: 2000 * 10**18,
+            lpCoefficient: 500,
+            totalStaked: 0,
+            active: true
+        });
         
         // ⑤级: 100000 HCF, 0.8% → LP后1.6% (2倍基础), 复投倍数20000
-        stakingLevels[4] = StakingLevel(100000 * 10**18, 80, 160, 20000 * 10**18, 500, 0, true);
+        stakingLevels[4] = StakingLevel({
+            minAmount: 100000 * 10**18,
+            baseRate: 80,
+            lpRate: 160,
+            compoundUnit: 20000 * 10**18,
+            lpCoefficient: 500,
+            totalStaked: 0,
+            active: true
+        });
         
         // Initialize dual cycle config
         cycleConfig = CycleInfo(100, 500, 10000 * 10**18); // 1x base, 5x after cycle, 10k threshold

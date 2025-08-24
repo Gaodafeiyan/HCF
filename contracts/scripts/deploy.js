@@ -9,11 +9,11 @@ async function main() {
   console.log("Deploying contracts with account:", deployer.address);
   console.log("Account balance:", ethers.utils.formatEther(await deployer.getBalance()), "BNB\n");
 
-  // Contract parameters
-  const BSDT_ADDRESS = process.env.BSDT_CONTRACT_ADDRESS;
-  const MARKETING_WALLET = deployer.address; // Use deployer as marketing wallet for now
-  const LP_WALLET = deployer.address;        // Use deployer as LP wallet for now  
-  const NODE_WALLET = deployer.address;      // Use deployer as node wallet for now
+  // Contract parameters - with fallbacks for missing env vars
+  const BSDT_ADDRESS = process.env.BSDT_CONTRACT_ADDRESS || deployer.address; // Fallback to deployer if not set
+  const MARKETING_WALLET = process.env.MARKETING_WALLET || deployer.address;
+  const LP_WALLET = process.env.LP_WALLET || deployer.address;
+  const NODE_WALLET = process.env.NODE_WALLET || deployer.address;
 
   console.log("Deployment Parameters:");
   console.log("BSDT Token:", BSDT_ADDRESS);

@@ -157,34 +157,28 @@
             loginBtn.textContent = '登录中...';
             
             try {
-                // 模拟登录（实际应调用API）
-                if (username === 'admin' && password === 'admin123') {
-                    // 保存token到localStorage
-                    localStorage.setItem('adminToken', 'mock-jwt-token-' + Date.now());
-                    
-                    // 显示成功消息
-                    successMessage.textContent = '登录成功，正在跳转...';
-                    successMessage.style.display = 'block';
-                    
-                    // 跳转到管理页面
-                    setTimeout(() => {
-                        window.location.href = '/admin';
-                    }, 1000);
+                // 调用登录API
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        localStorage.setItem('adminToken', data.token);
+                        successMessage.textContent = '登录成功，正在跳转...';
+                        successMessage.style.display = 'block';
+                        setTimeout(() => {
+                            window.location.href = '/admin';
+                        }, 1000);
+                    } else {
+                        throw new Error(data.error || '登录失败');
+                    }
                 } else {
                     throw new Error('用户名或密码错误');
                 }
-                
-                // 实际API调用示例
-                // const response = await fetch('/api/auth/login', {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/json' },
-                //     body: JSON.stringify({ username, password })
-                // });
-                // const data = await response.json();
-                // if (data.success) {
-                //     localStorage.setItem('adminToken', data.token);
-                //     window.location.href = '/admin';
-                // }
             } catch (error) {
                 errorMessage.textContent = error.message || '登录失败，请重试';
                 errorMessage.style.display = 'block';

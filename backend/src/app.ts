@@ -8,6 +8,7 @@ import cron from 'node-cron';
 import { ethers } from 'ethers';
 
 // 路由导入
+import authRouter from './routes/auth';
 import parametersRouter from './routes/parameters';
 import rankingRouter from './routes/ranking';
 import usersRouter from './routes/users';
@@ -48,6 +49,7 @@ const provider = new ethers.JsonRpcProvider(process.env.BSC_RPC || 'https://bsc-
 console.log('✅ BSC Provider connected');
 
 // 路由
+app.use('/api/auth', authRouter);
 app.use('/api/parameters', parametersRouter);
 app.use('/api/ranking', rankingRouter);
 app.use('/api/users', usersRouter);

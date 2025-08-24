@@ -3,8 +3,8 @@ import path from 'path';
 
 const adminRouter = express.Router();
 
-// 获取正确的路径（兼容TypeScript编译）
-const publicPath = path.join(process.cwd(), 'admin', 'public');
+// 获取正确的路径 - 使用相对于backend目录的路径
+const publicPath = path.join(__dirname, '..', 'admin', 'public');
 
 // 静态文件服务
 adminRouter.use('/static', express.static(path.join(publicPath, 'static')));

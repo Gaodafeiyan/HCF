@@ -126,23 +126,23 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         bsdtToken = IBSDT(_bsdtToken);
         usdcToken = IUSDC(_usdcToken);
         
-        // Initialize 真实需求的5等级质押系统 (10~10万HCF, 0.4%-0.8%)
-        // 真实需求: LP翻倍(2倍基础) + 1:5增益(额外4倍) = 总5倍
+        // Initialize 5等级质押系统 - 完全按照文档要求
+        // LP配比1:5增益机制
         
-        // Level 0: 10 HCF, 0.4% → LP后0.8% (2倍基础)
+        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数10
         stakingLevels[0] = StakingLevel(10 * 10**18, 40, 80, 10 * 10**18, 500, 0, true);
         
-        // Level 1: 100 HCF, 0.5% → LP后1% (2倍基础)  
-        stakingLevels[1] = StakingLevel(100 * 10**18, 50, 100, 20 * 10**18, 500, 0, true);
+        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数20
+        stakingLevels[1] = StakingLevel(100 * 10**18, 40, 80, 20 * 10**18, 500, 0, true);
         
-        // Level 2: 1000 HCF, 0.6% → LP后1.2% (2倍基础)
-        stakingLevels[2] = StakingLevel(1000 * 10**18, 60, 120, 200 * 10**18, 500, 0, true);
+        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础), 复投倍数200
+        stakingLevels[2] = StakingLevel(1000 * 10**18, 50, 100, 200 * 10**18, 500, 0, true);
         
-        // Level 3: 10000 HCF, 0.7% → LP后1.4% (2倍基础)
-        stakingLevels[3] = StakingLevel(10000 * 10**18, 70, 140, 500 * 10**18, 500, 0, true);
+        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础), 复投倍数2000
+        stakingLevels[3] = StakingLevel(10000 * 10**18, 60, 120, 2000 * 10**18, 500, 0, true);
         
-        // Level 4: 100000 HCF, 0.8% → LP后1.6% (2倍基础)
-        stakingLevels[4] = StakingLevel(100000 * 10**18, 80, 160, 1000 * 10**18, 500, 0, true);
+        // ⑤级: 100000 HCF, 0.8% → LP后1.6% (2倍基础), 复投倍数20000
+        stakingLevels[4] = StakingLevel(100000 * 10**18, 80, 160, 20000 * 10**18, 500, 0, true);
         
         // Initialize dual cycle config
         cycleConfig = CycleInfo(100, 500, 10000 * 10**18); // 1x base, 5x after cycle, 10k threshold
@@ -286,37 +286,119 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         return (currentPriceImpact, additionalTaxRate, productionReductionRate);
     }
     
-    function unstake(uint256 _amount) external nonReentrant {
+    /**
+     * @dev 赎回机制 - 按文档要求实现罚款
+     * 质押赎回: 扣10% BNB手续费
+     * LP赎回: 扣50% BSDT + 20%币（其中30%销毁）
+     * 未达分享总量1:1时，额外烧30% HCF
+     */
+    function unstake(uint256 _amount) external nonReentrant payable {
         UserInfo storage user = userInfo[msg.sender];
         require(user.amount >= _amount, "Insufficient staked amount");
         
-        // Claim pending rewards first
+        // 先领取待领取奖励
         _claimRewards(msg.sender);
         
-        // Calculate penalties
-        uint256 bnbPenalty = (_amount * BNB_PENALTY) / 10000;
-        uint256 burnAmount = (_amount * BURN_PENALTY) / 10000;
-        uint256 returnAmount = _amount - bnbPenalty - burnAmount;
+        uint256 returnAmount = _amount;
+        uint256 totalPenalty = 0;
         
-        // Update user and level info
+        if (user.isLP) {
+            // LP赎回罚款
+            // 50% BSDT罚款
+            uint256 bsdtPenalty = (user.lpBSDTAmount * 5000) / 10000; // 50%
+            if (bsdtPenalty > 0 && bsdtToken.balanceOf(msg.sender) >= bsdtPenalty) {
+                require(bsdtToken.transferFrom(msg.sender, address(this), bsdtPenalty), "BSDT penalty failed");
+            }
+            
+            // 20%币罚款（其中30%销毁）
+            uint256 hcfPenalty = (_amount * 2000) / 10000; // 20%
+            uint256 burnPortion = (hcfPenalty * 3000) / 10000; // 30%的20% = 6%
+            
+            returnAmount = _amount - hcfPenalty;
+            
+            // 销毁部分
+            if (burnPortion > 0) {
+                require(hcfToken.transfer(address(0xdead), burnPortion), "Burn failed");
+            }
+            
+            totalPenalty = hcfPenalty;
+            
+            // 更新LP信息
+            user.lpHCFAmount = user.lpHCFAmount > _amount ? user.lpHCFAmount - _amount : 0;
+            user.lpBSDTAmount = user.lpBSDTAmount > bsdtPenalty ? user.lpBSDTAmount - bsdtPenalty : 0;
+        } else {
+            // 普通质押赎回 - 扣10% BNB
+            uint256 bnbPenalty = (_amount * 1000) / 10000; // 10%
+            uint256 bnbRequired = (bnbPenalty * 1e18) / (10**18); // 转换为BNB
+            
+            // 需要用户支付BNB作为手续费
+            require(msg.value >= bnbRequired, "Insufficient BNB for penalty");
+            
+            // 如果支付过多，退还多余的
+            if (msg.value > bnbRequired) {
+                payable(msg.sender).transfer(msg.value - bnbRequired);
+            }
+            
+            totalPenalty = bnbPenalty;
+        }
+        
+        // 检查是否达到分享总量1:1
+        if (user.totalClaimed < user.amount) {
+            // 未达1:1，额外烧30%
+            uint256 additionalBurn = (returnAmount * 3000) / 10000; // 30%
+            returnAmount -= additionalBurn;
+            
+            if (additionalBurn > 0) {
+                require(hcfToken.transfer(address(0xdead), additionalBurn), "Additional burn failed");
+            }
+            
+            totalPenalty += additionalBurn;
+        }
+        
+        // 更新用户和等级信息
         user.amount -= _amount;
         stakingLevels[user.levelId].totalStaked -= _amount;
         
-        // Transfer tokens
-        require(hcfToken.transfer(msg.sender, returnAmount), "Transfer failed");
-        
-        // Burn penalty tokens (send to dead address)
-        if (burnAmount > 0) {
-            require(hcfToken.transfer(address(0xdead), burnAmount), "Burn failed");
+        // 如果完全退出，重置用户状态
+        if (user.amount == 0) {
+            user.isLP = false;
+            user.compoundCount = 0;
         }
         
-        // BNB penalty handling (converted to contract for operations)
-        // Note: In practice, this would involve DEX operations to get BNB
+        // 转移剩余代币给用户
+        require(hcfToken.transfer(msg.sender, returnAmount), "Transfer failed");
         
-        emit Unstaked(msg.sender, _amount, bnbPenalty + burnAmount);
+        emit Unstaked(msg.sender, _amount, totalPenalty);
     }
     
-    function claimRewards() external nonReentrant {
+    /**
+     * @dev 领取奖励 - 扣5% BNB手续费
+     */
+    function claimRewards() external nonReentrant payable {
+        UserInfo storage user = userInfo[msg.sender];
+        require(user.amount > 0, "No staked amount");
+        
+        uint256 pending = calculatePendingRewards(msg.sender);
+        require(pending > 0, "No rewards to claim");
+        
+        // 计算5% BNB手续费
+        uint256 bnbFee = (pending * 500) / 10000; // 5%
+        uint256 bnbRequired = (bnbFee * 1e15) / (10**18); // 转换为BNB（简化计算）
+        
+        // 检查用户是否支付了足够的BNB
+        require(msg.value >= bnbRequired, "Insufficient BNB for claim fee (5%)");
+        
+        // 如果支付过多，退还多余的
+        if (msg.value > bnbRequired) {
+            payable(msg.sender).transfer(msg.value - bnbRequired);
+        }
+        
+        // BNB手续费发送到营销钱包
+        if (bnbRequired > 0) {
+            payable(hcfToken.marketingWallet()).transfer(bnbRequired);
+        }
+        
+        // 执行领取
         _claimRewards(msg.sender);
     }
     

@@ -177,8 +177,66 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         _checkAndUpgradeTeamLevel(msg.sender);
     }
     
+    // ============ 入金奖励分发 ============
+    
+    /**
+     * @dev 分发入金奖励 - 一代5%，二代3%
+     */
+    function distributeDepositRewards(address user, uint256 depositAmount) external nonReentrant {
+        require(msg.sender == address(hcfStaking), "Only staking contract can distribute");
+        require(users[user].isActive, "User not activated");
+        
+        // 一代5%奖励
+        address firstGen = users[user].referrer;
+        if (firstGen != address(0) && users[firstGen].isActive) {
+            uint256 firstGenReward = (depositAmount * 500) / 10000; // 5%
+            if (firstGenReward > 0) {
+                // 应用烧伤机制
+                uint256 burnAmount = (firstGenReward * referralBurnRate) / 10000;
+                uint256 netReward = firstGenReward - burnAmount;
+                
+                if (netReward > 0) {
+                    hcfToken.transfer(firstGen, netReward);
+                    users[firstGen].totalReferralReward += netReward;
+                }
+                
+                if (burnAmount > 0) {
+                    hcfToken.transfer(BURN_ADDRESS, burnAmount);
+                    emit RewardBurned(firstGen, burnAmount, "deposit");
+                }
+            }
+        }
+        
+        // 二代3%奖励
+        if (firstGen != address(0)) {
+            address secondGen = users[firstGen].referrer;
+            if (secondGen != address(0) && users[secondGen].isActive) {
+                uint256 secondGenReward = (depositAmount * 300) / 10000; // 3%
+                if (secondGenReward > 0) {
+                    // 应用烧伤机制
+                    uint256 burnAmount = (secondGenReward * referralBurnRate) / 10000;
+                    uint256 netReward = secondGenReward - burnAmount;
+                    
+                    if (netReward > 0) {
+                        hcfToken.transfer(secondGen, netReward);
+                        users[secondGen].totalReferralReward += netReward;
+                    }
+                    
+                    if (burnAmount > 0) {
+                        hcfToken.transfer(BURN_ADDRESS, burnAmount);
+                        emit RewardBurned(secondGen, burnAmount, "deposit");
+                    }
+                }
+            }
+        }
+    }
+    
     // ============ 推荐奖励分发 ============
     
+    /**
+     * @dev 分发静态产出奖励 - 按文档要求的代数限制
+     * 一代20%，二代10%，3-8代5%，9-15代3%（V3+），16-20代2%（V4+）
+     */
     function distributeReferralRewards(address user, uint256 rewardAmount) external nonReentrant {
         require(msg.sender == address(hcfStaking), "Only staking contract can distribute");
         require(users[user].isActive, "User not activated");
@@ -191,7 +249,42 @@ contract HCFReferral is Ownable, ReentrancyGuard {
                 continue;
             }
             
-            uint256 referralReward = (rewardAmount * referralRates[level]) / 10000;
+            // 检查代数限制
+            bool canReceive = false;
+            uint256 rewardRate = 0;
+            
+            if (level == 1) {
+                // 一代20%
+                canReceive = true;
+                rewardRate = 2000; // 20%
+            } else if (level == 2) {
+                // 二代10%
+                canReceive = true;
+                rewardRate = 1000; // 10%
+            } else if (level >= 3 && level <= 8) {
+                // 3-8代5%
+                canReceive = true;
+                rewardRate = 500; // 5%
+            } else if (level >= 9 && level <= 15) {
+                // 9-15代3%（需要V3+）
+                if (users[currentReferrer].teamLevel >= 3) {
+                    canReceive = true;
+                    rewardRate = 300; // 3%
+                }
+            } else if (level >= 16 && level <= 20) {
+                // 16-20代2%（需要V4+）
+                if (users[currentReferrer].teamLevel >= 4) {
+                    canReceive = true;
+                    rewardRate = 200; // 2%
+                }
+            }
+            
+            if (!canReceive) {
+                currentReferrer = users[currentReferrer].referrer;
+                continue;
+            }
+            
+            uint256 referralReward = (rewardAmount * rewardRate) / 10000;
             if (referralReward > 0) {
                 // 计算燃烧部分
                 uint256 burnAmount = (referralReward * referralBurnRate) / 10000;
@@ -345,6 +438,79 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     
     function setHCFStaking(address _hcfStaking) external onlyOwner {
         hcfStaking = IHCFStaking(_hcfStaking);
+    }
+    
+    // ============ 小区验证功能 ============
+    
+    /**
+     * @dev 检查用户是否有有效的小区（不是单条线）
+     * 无小区、零业绩或单条线无法进入小区排名奖
+     */
+    function hasValidCommunity(address user) public view returns (bool) {
+        // 检查是否有小区（至少有直推）
+        if (users[user].directCount == 0) {
+            return false; // 无小区
+        }
+        
+        // 检查团队业绩
+        if (users[user].teamVolume == 0) {
+            return false; // 零业绩
+        }
+        
+        // 检查是否单条线（需要至少2条活跃线）
+        uint256 activeLines = 0;
+        address[] memory directs = directReferrals[user];
+        
+        for (uint256 i = 0; i < directs.length; i++) {
+            // 如果下级有团队业绩，算作一条活跃线
+            if (users[directs[i]].teamVolume > 0 || users[directs[i]].personalVolume > 0) {
+                activeLines++;
+            }
+        }
+        
+        // 至少需要2条活跃线才不是单条线
+        return activeLines >= 2;
+    }
+    
+    /**
+     * @dev 获取用户的小区业绩（用于排名）
+     */
+    function getCommunityPerformance(address user) public view returns (uint256) {
+        if (!hasValidCommunity(user)) {
+            return 0; // 无有效小区，业绩为0
+        }
+        
+        // 小区业绩 = 团队总业绩
+        return users[user].teamVolume;
+    }
+    
+    /**
+     * @dev 检查用户是否可以参与小区排名奖
+     */
+    function canParticipateInCommunityRanking(address user) external view returns (bool canParticipate, string memory reason) {
+        if (users[user].directCount == 0) {
+            return (false, "No community (no direct referrals)");
+        }
+        
+        if (users[user].teamVolume == 0) {
+            return (false, "Zero performance");
+        }
+        
+        // 检查活跃线数量
+        uint256 activeLines = 0;
+        address[] memory directs = directReferrals[user];
+        
+        for (uint256 i = 0; i < directs.length; i++) {
+            if (users[directs[i]].teamVolume > 0 || users[directs[i]].personalVolume > 0) {
+                activeLines++;
+            }
+        }
+        
+        if (activeLines < 2) {
+            return (false, "Single line structure (need at least 2 active lines)");
+        }
+        
+        return (true, "Eligible for community ranking");
     }
     
     // ============ 查询功能 ============

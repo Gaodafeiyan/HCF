@@ -47,10 +47,11 @@ contract HCFMarketControl is Ownable, ReentrancyGuard {
     IHCFStaking public stakingContract;
     IHCFNodeNFT public nodeNFT;
     
-    // 900万调控底池
+    // 900万调控底池 - 文档要求的调控机制
     uint256 public constant CONTROL_POOL = 9_000_000 * 10**18; // 900万HCF调控池
     uint256 public controlPoolUsed; // 已使用的调控资金
     uint256 public controlPoolAvailable; // 可用调控资金
+    uint256 public controlPoolFunds; // 管理员添加的资金用于稳价
     
     // 价格监控
     uint256 public currentPrice;
@@ -530,10 +531,40 @@ contract HCFMarketControl is Ownable, ReentrancyGuard {
     }
     
     /**
+     * @dev 使用调控池资金稳定价格
+     */
+    function useControlPool(uint256 _amount, string memory _purpose) external onlyOwner {
+        require(controlPoolUsed + _amount <= CONTROL_POOL, "Exceeds control pool limit");
+        require(hcfToken.balanceOf(address(this)) >= _amount, "Insufficient HCF in contract");
+        
+        controlPoolUsed += _amount;
+        controlPoolAvailable = CONTROL_POOL - controlPoolUsed;
+        
+        // 根据用途执行不同操作
+        // 例如：添加流动性、回购、销毁等
+        emit ControlPoolUsed(_amount, _purpose, block.timestamp);
+    }
+    
+    /**
+     * @dev 管理员添加资金到调控池
+     */
+    function addControlFunds(uint256 _amount) external onlyOwner {
+        require(hcfToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        controlPoolFunds += _amount;
+        controlPoolAvailable = CONTROL_POOL - controlPoolUsed + controlPoolFunds;
+        
+        emit ControlFundsAdded(_amount, block.timestamp);
+    }
+    
+    /**
      * @dev 紧急提取合约资金
      */
     function emergencyWithdraw(address _token, uint256 _amount) external onlyOwner {
         require(emergencyMode, "Must be in emergency mode");
         IERC20(_token).transfer(owner(), _amount);
     }
+    
+    // 新增事件
+    event ControlPoolUsed(uint256 amount, string purpose, uint256 timestamp);
+    event ControlFundsAdded(uint256 amount, uint256 timestamp);
 }

@@ -273,12 +273,71 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     }
     
     /**
+     * @dev 房损补充机制 - 补500 HCF恢复算力
+     * 当价格上涨导致LP中HCF减少，节点需要补充500 HCF恢复算力
+     */
+    function compensateForLoss(uint256 _nodeId) external nonReentrant {
+        require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
+        require(nodes[_nodeId].isActive, "Node not active");
+        require(nodes[_nodeId].owner == msg.sender, "Not node owner");
+        
+        // 检查当前算力
+        uint256 currentPower = nodes[_nodeId].computingPower;
+        
+        // 如果算力低于100%，需要补充
+        if (currentPower < 10000) { // 10000 = 100%
+            // 补充500 HCF
+            uint256 compensationAmount = 500 * 10**18;
+            require(hcfToken.transferFrom(msg.sender, address(this), compensationAmount), "HCF transfer failed");
+            
+            // 恢复算力到100%
+            uint256 oldPower = nodes[_nodeId].computingPower;
+            nodes[_nodeId].computingPower = 10000; // 恢复到100%
+            
+            emit ComputingPowerRestored(_nodeId, oldPower, 10000, compensationAmount);
+        } else {
+            revert("Node already at full power");
+        }
+    }
+    
+    /**
+     * @dev 批量检查需要房损补充的节点
+     */
+    function getNodesNeedingCompensation() external view returns (uint256[] memory nodeIds, uint256[] memory powerLevels) {
+        uint256 count = 0;
+        
+        // 计算需要补充的节点数量
+        for (uint256 i = 1; i <= currentNodeId; i++) {
+            if (nodes[i].isActive && nodes[i].computingPower < 10000) {
+                count++;
+            }
+        }
+        
+        nodeIds = new uint256[](count);
+        powerLevels = new uint256[](count);
+        
+        uint256 index = 0;
+        for (uint256 i = 1; i <= currentNodeId; i++) {
+            if (nodes[i].isActive && nodes[i].computingPower < 10000) {
+                nodeIds[index] = i;
+                powerLevels[index] = nodes[i].computingPower;
+                index++;
+            }
+        }
+        
+        return (nodeIds, powerLevels);
+    }
+    
+    /**
      * @dev 设置BSDT交易所地址
      */
     function setBSDTExchange(address _bsdtExchange) external onlyOwner {
         require(_bsdtExchange != address(0), "Invalid exchange address");
         bsdtExchange = IHCFBSDTExchange(_bsdtExchange);
     }
+    
+    // 新增事件
+    event ComputingPowerRestored(uint256 indexed nodeId, uint256 oldPower, uint256 newPower, uint256 compensationAmount);
     
     /**
      * @dev 获取节点的详细信息包括算力

@@ -2,6 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
   walletAddress: string;
+  username?: string;
+  password?: string;
   referrer: string | null;
   referralLevel: number;
   teamLevel: 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6' | null;
@@ -24,6 +26,15 @@ const UserSchema = new Schema<IUser>({
     required: true, 
     unique: true, 
     lowercase: true 
+  },
+  username: {
+    type: String,
+    sparse: true,
+    unique: true
+  },
+  password: {
+    type: String,
+    select: false // 默认不返回密码字段
   },
   referrer: { 
     type: String, 

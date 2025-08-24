@@ -80,9 +80,6 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     // 股权LP归集账户
     address public equityLPCollector;
     
-    // 营销钱包地址（用于接收手续费）
-    address public marketingWallet;
-    
     // LP动态平衡参数
     uint256 public lpTargetRatio = 5000; // 50% HCF in LP
     uint256 public priceImpactThreshold = 1000; // 10% price change threshold
@@ -396,9 +393,9 @@ contract HCFStaking is ReentrancyGuard, Ownable {
             payable(msg.sender).transfer(msg.value - bnbRequired);
         }
         
-        // BNB手续费发送到营销钱包
-        if (bnbRequired > 0 && marketingWallet != address(0)) {
-            payable(marketingWallet).transfer(bnbRequired);
+        // BNB手续费发送到owner（后续可以设置专门的费用接收地址）
+        if (bnbRequired > 0) {
+            payable(owner()).transfer(bnbRequired);
         }
         
         // 执行领取
@@ -562,11 +559,6 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     function setEquityLPCollector(address _collector) external onlyOwner {
         equityLPCollector = _collector;
-    }
-    
-    function setMarketingWallet(address _marketingWallet) external onlyOwner {
-        require(_marketingWallet != address(0), "Invalid marketing wallet");
-        marketingWallet = _marketingWallet;
     }
     
     // Emergency functions

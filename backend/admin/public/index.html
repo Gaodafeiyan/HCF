@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCF DeFi 后台管理系统</title>
+    <link rel="stylesheet" href="/admin/static/styles.css">
+</head>
+<body>
+    <div id="root">
+        <div class="admin-container">
+            <header class="admin-header">
+                <h1>HCF DeFi 后台管理系统</h1>
+                <nav class="admin-nav">
+                    <button class="nav-btn active" data-section="dashboard">仪表盘</button>
+                    <button class="nav-btn" data-section="parameters">参数管理</button>
+                    <button class="nav-btn" data-section="kyc">KYC审核</button>
+                    <button class="nav-btn" data-section="monitoring">监控警报</button>
+                    <button class="nav-btn" data-section="analysis">数据分析</button>
+                </nav>
+            </header>
+            
+            <main class="admin-main">
+                <div id="dashboard" class="admin-section active">
+                    <h2>系统概览</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>总用户数</h3>
+                            <p id="totalUsers">加载中...</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>总质押量</h3>
+                            <p id="totalStaking">加载中...</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>活跃节点</h3>
+                            <p id="activeNodes">加载中...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="parameters" class="admin-section">
+                    <h2>参数管理</h2>
+                    <div class="parameter-form">
+                        <select id="paramKey">
+                            <option value="">选择参数</option>
+                            <option value="dailyYieldBase">基础日化率</option>
+                            <option value="buyTaxRate">买入税率</option>
+                            <option value="sellTaxRate">卖出税率</option>
+                            <option value="decayRate">衰减率</option>
+                        </select>
+                        <input type="text" id="paramValue" placeholder="新值">
+                        <button onclick="updateParameter()">更新参数</button>
+                    </div>
+                </div>
+                
+                <div id="kyc" class="admin-section">
+                    <h2>KYC审核</h2>
+                    <div id="kycList">加载中...</div>
+                </div>
+                
+                <div id="monitoring" class="admin-section">
+                    <h2>监控警报</h2>
+                    <div id="alertList">加载中...</div>
+                </div>
+                
+                <div id="analysis" class="admin-section">
+                    <h2>数据分析</h2>
+                    <div id="analysisCharts">加载中...</div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script src="/admin/static/admin.js"></script>
+</body>
+</html>

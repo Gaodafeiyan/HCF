@@ -1,0 +1,51 @@
+{
+  "name": "hcf-backend",
+  "version": "1.0.0",
+  "description": "HCF DeFi Backend API and Admin System",
+  "main": "dist/app.js",
+  "scripts": {
+    "dev": "ts-node src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix"
+  },
+  "keywords": ["defi", "hcf", "blockchain", "api", "admin"],
+  "author": "HCF Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.5.0",
+    "ethers": "^6.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "express-rate-limit": "^6.10.0",
+    "winston": "^3.10.0",
+    "nodemailer": "^6.9.4",
+    "node-cron": "^3.0.2",
+    "ioredis": "^5.3.2",
+    "gnosis-safe-sdk": "^7.0.0",
+    "axios": "^1.5.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.6",
+    "ts-node": "^10.9.1",
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.5.0",
+    "@types/cors": "^2.8.13",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/nodemailer": "^6.4.9",
+    "@types/node-cron": "^3.0.7",
+    "jest": "^29.6.2",
+    "supertest": "^6.3.3",
+    "@types/jest": "^29.5.4",
+    "@types/supertest": "^2.0.12",
+    "eslint": "^8.47.0",
+    "@typescript-eslint/eslint-plugin": "^6.4.1",
+    "@typescript-eslint/parser": "^6.4.1"
+  }
+}

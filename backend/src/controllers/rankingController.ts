@@ -16,20 +16,21 @@ export const getPersonalRanking = async (req: Request, res: Response) => {
     
     // 计算奖励加成
     let bonusPercentage = 0;
-    if (ranking.rank <= 100) {
+    if (ranking.rank && ranking.rank <= 100) {
       bonusPercentage = 20; // Top 100: 20%加成
-    } else if (ranking.rank <= 299) {
+    } else if (ranking.rank && ranking.rank <= 299) {
       bonusPercentage = 10; // 101-299: 10%加成
     }
 
     // 检查小区排名资格
     let districtBonus = 0;
+    let districtRanking = null;
     if (user.smallDistrictPerformance > 0 && user.referrals.length > 1) {
       // 非单条线且有业绩，可以参与小区排名
-      const districtRanking = await calculateDistrictRanking(walletAddress);
-      if (districtRanking.rank <= 100) {
+      districtRanking = await calculateDistrictRanking(walletAddress);
+      if (districtRanking && districtRanking.rank && districtRanking.rank <= 100) {
         districtBonus = 20;
-      } else if (districtRanking.rank <= 299) {
+      } else if (districtRanking && districtRanking.rank && districtRanking.rank <= 299) {
         districtBonus = 10;
       }
     }

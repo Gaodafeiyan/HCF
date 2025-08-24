@@ -15,6 +15,7 @@ import nodesRouter from './routes/nodes';
 import controlsRouter from './routes/controls';
 import monitoringRouter from './routes/monitoring';
 import operationalRouter from './routes/operational';
+import adminRouter from '../admin/index';
 
 // 控制器导入
 import { recalculateAllRankings } from './controllers/rankingController';
@@ -54,6 +55,7 @@ app.use('/api/nodes', nodesRouter);
 app.use('/api/controls', controlsRouter);
 app.use('/api/monitoring', monitoringRouter);
 app.use('/api/operational', operationalRouter);
+app.use('/admin', adminRouter);
 
 // 定时任务 - 串联所有机制
 cron.schedule('0 0 * * *', async () => {

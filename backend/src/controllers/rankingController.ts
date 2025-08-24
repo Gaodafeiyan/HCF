@@ -48,7 +48,7 @@ export const getPersonalRanking = async (req: Request, res: Response) => {
         teamLevel: user.teamLevel
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '获取排名失败', details: error.message });
   }
 };
@@ -70,7 +70,7 @@ export const getRankingList = async (req: Request, res: Response) => {
       success: true,
       data: rankingData
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '获取排名列表失败', details: error.message });
   }
 };
@@ -86,7 +86,7 @@ export const recalculateAllRankings = async () => {
     await recalculateDistrictRankings();
     
     console.log('✅ 所有排名重新计算完成');
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ 排名重新计算失败:', error);
   }
 };
@@ -147,5 +147,5 @@ async function recalculatePersonalRankings() {
 
 async function recalculateDistrictRankings() {
   // 小区排名重新计算逻辑
-  console.log('🔄 重新计算小区排名...');
+  console.log('�� 重新计算小区排名...');
 }

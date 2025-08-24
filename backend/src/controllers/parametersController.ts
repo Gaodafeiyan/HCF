@@ -9,7 +9,7 @@ export const getParameters = async (req: Request, res: Response) => {
     
     const parameters = await Parameter.find(filter).sort({ key: 1 });
     res.json({ success: true, data: parameters });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '获取参数失败', details: error.message });
   }
 };
@@ -71,7 +71,7 @@ export const updateParameter = async (req: Request, res: Response) => {
       message: '参数更新成功',
       data: parameter 
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '参数更新失败', details: error.message });
   }
 };
@@ -100,7 +100,7 @@ export const updateDecayRates = async () => {
       
       console.log('✅ 衰减率更新完成');
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ 衰减率更新失败:', error);
   }
 };

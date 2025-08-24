@@ -27,7 +27,7 @@ router.post('/kyc/verify', adminMiddleware, async (req, res) => {
       success: true, 
       message: 'KYC验证成功' 
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: 'KYC验证失败', details: error.message });
   }
 });
@@ -75,7 +75,7 @@ router.get('/analysis', adminMiddleware, async (req, res) => {
         timestamp: new Date().toISOString()
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '数据分析失败', details: error.message });
   }
 });
@@ -97,7 +97,7 @@ router.get('/monitoring/alerts', adminMiddleware, async (req, res) => {
       success: true,
       data: alerts
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: '获取监控警报失败', details: error.message });
   }
 });

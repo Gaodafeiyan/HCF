@@ -273,7 +273,31 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         require(users.length == communityRanks.length, "Length mismatch");
         
         for (uint256 i = 0; i < users.length; i++) {
-            updateUserRankData(users[i], stakingRanks[i], communityRanks[i]);
+            // 内联更新逻辑，避免前向引用问题
+            UserRankData storage userData = userRankData[users[i]];
+            
+            // 获取质押信息
+            (uint256 stakingAmount, , , , , , , , ) = stakingContract.getUserInfo(users[i]);
+            
+            // 获取小区信息
+            bool hasValidCommunity = referralContract.hasValidCommunity(users[i]);
+            uint256 communityPerformance = referralContract.getCommunityPerformance(users[i]);
+            
+            // 更新数据
+            userData.stakingRank = stakingRanks[i];
+            userData.communityRank = hasValidCommunity ? communityRanks[i] : 0;
+            userData.stakingAmount = stakingAmount;
+            userData.communityPerformance = communityPerformance;
+            userData.hasValidCommunity = hasValidCommunity;
+            userData.lastUpdateTime = block.timestamp;
+            
+            // 计算奖励
+            userData.stakingBonus = _calculateBonus(stakingRanks[i], stakingRankConfig);
+            userData.communityBonus = hasValidCommunity ? 
+                _calculateBonus(communityRanks[i], communityRankConfig) : 0;
+            
+            emit UserRankChanged(users[i], stakingRanks[i], communityRanks[i]);
+            emit BonusCalculated(users[i], userData.stakingBonus, userData.communityBonus);
         }
     }
     

@@ -17,7 +17,7 @@ import controlsRouter from './routes/controls';
 import monitoringRouter from './routes/monitoring';
 import operationalRouter from './routes/operational';
 import kycRouter from './routes/kyc';
-import adminRouter from '../admin/index';
+import adminRouter from '../admin';
 
 // 控制器导入
 import { recalculateAllRankings } from './controllers/rankingController';

@@ -17,6 +17,7 @@ function checkAuth() {
 async function apiRequest(endpoint, options = {}) {
     const token = localStorage.getItem('adminToken');
     const defaultOptions = {
+        timeout: 10000, // 10秒超时
         headers: {
             'Content-Type': 'application/json',
             'Authorization': token ? `Bearer ${token}` : ''
@@ -24,25 +25,50 @@ async function apiRequest(endpoint, options = {}) {
     };
     
     try {
+        console.log(`API请求: ${API_BASE}${endpoint}`);
+        
+        // 创建带超时的fetch
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), defaultOptions.timeout);
+        
         const response = await fetch(`${API_BASE}${endpoint}`, {
             ...defaultOptions,
             ...options,
+            signal: controller.signal,
             headers: {
                 ...defaultOptions.headers,
                 ...options.headers
             }
         });
         
+        clearTimeout(timeoutId);
+        
+        console.log(`API响应状态: ${response.status}`);
+        
         if (response.status === 401) {
+            console.log('认证失败，清除token并跳转登录');
             localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUser');
             window.location.href = '/admin/login';
             return null;
         }
         
-        return await response.json();
+        if (!response.ok) {
+            console.error(`API错误: ${response.status} ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log(`API响应数据:`, data);
+        return data;
     } catch (error) {
-        console.error('API请求失败:', error);
-        showNotification('API请求失败', 'error');
+        if (error.name === 'AbortError') {
+            console.error('API请求超时:', endpoint);
+            showNotification('请求超时，请检查网络连接', 'error');
+        } else {
+            console.error('API请求失败:', endpoint, error);
+            showNotification(`API请求失败: ${error.message}`, 'error');
+        }
         return null;
     }
 }
@@ -130,9 +156,19 @@ async function loadSectionData(section) {
 
 // 加载仪表盘数据
 async function loadDashboard() {
+    console.log('开始加载仪表盘数据...');
+    
+    // 立即显示加载中状态，清除转圈圈
+    document.getElementById('totalUsers').innerHTML = `<span class="loading-text">加载中...</span>`;
+    document.getElementById('totalStaking').innerHTML = `<span class="loading-text">加载中...</span>`;
+    document.getElementById('activeNodes').innerHTML = `<span class="loading-text">加载中...</span>`;
+    document.getElementById('dailyVolume').innerHTML = `<span class="loading-text">加载中...</span>`;
+    
     try {
         // 尝试从API获取真实数据
+        console.log('请求API: /operational/dashboard');
         const dashboardData = await apiRequest('/operational/dashboard');
+        console.log('API响应:', dashboardData);
         
         if (dashboardData && dashboardData.success) {
             // 使用API数据
@@ -140,13 +176,19 @@ async function loadDashboard() {
             document.getElementById('totalUsers').innerHTML = `${formatNumber(data.totalUsers || 0)}`;
             document.getElementById('totalStaking').innerHTML = `${formatNumber(data.totalStaking || 0)} <span class="unit">HCF</span>`;
             document.getElementById('activeNodes').innerHTML = `${data.activeNodes || 0} <span class="unit">/ ${data.maxNodes || 99}</span>`;
-            document.getElementById('dailyVolume').innerHTML = `${formatNumber(data.dailyVolume || 0)} <span class="unit">HCF</span>`;
+            if (document.getElementById('dailyVolume')) {
+                document.getElementById('dailyVolume').innerHTML = `${formatNumber(data.dailyVolume || 0)} <span class="unit">HCF</span>`;
+            }
+            console.log('使用API数据渲染完成');
         } else {
+            console.log('API数据无效，使用后备数据');
             // 后备模拟数据
             document.getElementById('totalUsers').innerHTML = `${formatNumber(1234)}`;
             document.getElementById('totalStaking').innerHTML = `${formatNumber(5678900)} <span class="unit">HCF</span>`;
             document.getElementById('activeNodes').innerHTML = `89 <span class="unit">/ 99</span>`;
-            document.getElementById('dailyVolume').innerHTML = `${formatNumber(123456)} <span class="unit">HCF</span>`;
+            if (document.getElementById('dailyVolume')) {
+                document.getElementById('dailyVolume').innerHTML = `${formatNumber(123456)} <span class="unit">HCF</span>`;
+            }
         }
         
         // 初始化质押趋势图
@@ -159,7 +201,9 @@ async function loadDashboard() {
         document.getElementById('totalUsers').innerHTML = `${formatNumber(1234)}`;
         document.getElementById('totalStaking').innerHTML = `${formatNumber(5678900)} <span class="unit">HCF</span>`;
         document.getElementById('activeNodes').innerHTML = `89 <span class="unit">/ 99</span>`;
-        document.getElementById('dailyVolume').innerHTML = `${formatNumber(123456)} <span class="unit">HCF</span>`;
+        if (document.getElementById('dailyVolume')) {
+            document.getElementById('dailyVolume').innerHTML = `${formatNumber(123456)} <span class="unit">HCF</span>`;
+        }
         
         initStakingChart();
     }

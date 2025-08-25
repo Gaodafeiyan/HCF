@@ -25,6 +25,7 @@ export interface IUser extends Document {
     verifiedAt?: Date;
     verifiedBy?: string;
     rejectReason?: string;
+    notes?: string;
   };
   lastLogin?: Date;
   loginAttempts?: number;
@@ -111,7 +112,8 @@ const UserSchema = new Schema<IUser>({
     uploadedAt: Date,
     verifiedAt: Date,
     verifiedBy: String,
-    rejectReason: String
+    rejectReason: String,
+    notes: String
   },
   lastLogin: Date,
   loginAttempts: { 

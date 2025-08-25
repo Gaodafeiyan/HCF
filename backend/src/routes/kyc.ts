@@ -107,7 +107,7 @@ router.post('/submit', authMiddleware, upload.array('documents', 5), async (req:
       success: true,
       message: 'KYC申请已提交，请等待审核',
       data: {
-        submittedAt: user.kycDocuments.uploadedAt,
+        submittedAt: user.kycDocuments?.uploadedAt,
         documentsCount: files.length
       }
     });
@@ -246,7 +246,7 @@ router.post('/:userId/approve', operatorMiddleware, async (req: any, res) => {
     user.kycVerified = true;
     user.kycDocuments.verifiedAt = new Date();
     user.kycDocuments.verifiedBy = operatorName;
-    if (notes) {
+    if (notes && user.kycDocuments) {
       user.kycDocuments.notes = notes;
     }
     

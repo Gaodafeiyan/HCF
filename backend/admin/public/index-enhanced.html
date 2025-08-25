@@ -16,7 +16,6 @@
                 <nav class="admin-nav">
                     <button class="nav-btn active" data-section="dashboard">📊 仪表盘</button>
                     <button class="nav-btn" data-section="parameters">⚙️ 参数管理</button>
-                    <button class="nav-btn" data-section="kyc">👤 KYC审核</button>
                     <button class="nav-btn" data-section="monitoring">🚨 监控警报</button>
                     <button class="nav-btn" data-section="analysis">📈 数据分析</button>
                     <button class="nav-btn" data-section="nodes">🔗 节点管理</button>
@@ -148,93 +147,6 @@
                     </table>
                 </div>
                 
-                <!-- KYC审核 -->
-                <div id="kyc" class="admin-section">
-                    <h2>KYC审核</h2>
-                    <div class="kyc-stats stats-grid">
-                        <div class="stat-card card-hover">
-                            <h3>待审核</h3>
-                            <p>23</p>
-                            <div class="badge" style="background: var(--warning-color);">!</div>
-                        </div>
-                        <div class="stat-card card-hover">
-                            <h3>已通过</h3>
-                            <p>156</p>
-                        </div>
-                        <div class="stat-card card-hover">
-                            <h3>已拒绝</h3>
-                            <p>12</p>
-                        </div>
-                    </div>
-                    
-                    <!-- KYC工具栏 -->
-                    <div class="kyc-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin: 20px 0; padding: 15px; background: var(--bg-primary); border-radius: var(--radius-md);">
-                        <div style="display: flex; gap: 15px; align-items: center;">
-                            <div class="search-box">
-                                <input type="text" id="kycSearch" placeholder="搜索用户地址或ID">
-                            </div>
-                            <select id="kycStatusFilter" style="width: auto;">
-                                <option value="">全部状态</option>
-                                <option value="pending">待审核</option>
-                                <option value="approved">已通过</option>
-                                <option value="rejected">已拒绝</option>
-                            </select>
-                        </div>
-                        <div class="btn-group">
-                            <button class="btn-primary" onclick="refreshKYCList()">
-                                <span>🔄</span> 刷新
-                            </button>
-                            <button class="btn-warning" onclick="exportKYCData()">
-                                <span>📊</span> 导出
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <h3>KYC申请列表</h3>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>
-                                    <div class="tooltip" data-tooltip="用户唯一标识">用户ID</div>
-                                </th>
-                                <th>
-                                    <div class="tooltip" data-tooltip="用户的钱包地址">钱包地址</div>
-                                </th>
-                                <th>证件类型</th>
-                                <th>提交时间</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="kycList">
-                            <tr>
-                                <td>USER001</td>
-                                <td>
-                                    <div class="tooltip" data-tooltip="0x1234567890abcdef1234567890abcdef12345678">
-                                        0x1234...5678
-                                    </div>
-                                </td>
-                                <td>身份证</td>
-                                <td>2024-01-15 14:30</td>
-                                <td><span class="status-badge pending">待审核</span></td>
-                                <td>
-                                    <div class="action-buttons btn-group">
-                                        <button class="btn-primary" onclick="viewKYCDetails('USER001')">查看</button>
-                                        <button class="btn-success" onclick="approveKYC('USER001')">通过</button>
-                                        <button class="btn-danger" onclick="rejectKYC('USER001')">拒绝</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    
-                    <!-- 分页控件 -->
-                    <div class="pagination" style="display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 10px;">
-                        <button class="btn-secondary" disabled>«</button>
-                        <span style="padding: 0 15px; color: var(--text-secondary);">第 1 页，共 5 页</span>
-                        <button class="btn-secondary">»</button>
-                    </div>
-                </div>
                 
                 <!-- 监控警报 -->
                 <div id="monitoring" class="admin-section">

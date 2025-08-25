@@ -172,10 +172,6 @@ async function loadSectionDataFixed(section) {
             // 显示模拟数据
             updateParametersUI();
             break;
-        case 'kyc':
-            console.log('加载KYC数据...');
-            updateKYCUI();
-            break;
         default:
             console.log('加载区块:', section);
     }
@@ -256,36 +252,6 @@ function updateParametersUI() {
     }
 }
 
-// 更新KYC UI
-function updateKYCUI() {
-    const kycList = document.getElementById('kycList');
-    if (kycList) {
-        kycList.innerHTML = `
-            <tr>
-                <td>USER001</td>
-                <td><span title="0x1234567890abcdef1234567890abcdef12345678">0x1234...5678</span></td>
-                <td>身份证</td>
-                <td>2024-01-15 14:30</td>
-                <td><span class="status-badge pending">待审核</span></td>
-                <td>
-                    <button class="btn-primary" onclick="alert('查看详情')">查看</button>
-                    <button class="btn-success" onclick="alert('通过审核')">通过</button>
-                    <button class="btn-danger" onclick="alert('拒绝审核')">拒绝</button>
-                </td>
-            </tr>
-            <tr>
-                <td>USER002</td>
-                <td><span title="0xabcdef1234567890abcdef1234567890abcdef12">0xabcd...ef12</span></td>
-                <td>护照</td>
-                <td>2024-01-15 12:15</td>
-                <td><span class="status-badge approved">已通过</span></td>
-                <td>
-                    <button class="btn-primary" onclick="alert('查看详情')">查看</button>
-                </td>
-            </tr>
-        `;
-    }
-}
 
 // 格式化数字函数
 function formatNumber(num) {

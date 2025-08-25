@@ -16,7 +16,7 @@ import nodesRouter from './routes/nodes';
 import controlsRouter from './routes/controls';
 import monitoringRouter from './routes/monitoring';
 import operationalRouter from './routes/operational';
-import kycRouter from './routes/kyc';
+// import kycRouter from './routes/kyc'; // KYC功能已移除，保持去中心化
 import adminRouter from '../admin';
 
 // 控制器导入
@@ -78,7 +78,7 @@ app.use('/api/nodes', nodesRouter);
 app.use('/api/controls', controlsRouter);
 app.use('/api/monitoring', monitoringRouter);
 app.use('/api/operational', operationalRouter);
-app.use('/api/kyc', kycRouter);
+// app.use('/api/kyc', kycRouter); // KYC功能已移除，保持去中心化
 app.use('/admin', adminRouter);
 
 // 定时任务 - 串联所有机制

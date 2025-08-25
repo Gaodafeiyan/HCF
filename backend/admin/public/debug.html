@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCF 调试页面</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .test { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background: #d4edda; }
+        .error { background: #f8d7da; }
+        .info { background: #d1ecf1; }
+        button { margin: 5px; padding: 10px; }
+        pre { background: #f8f9fa; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>HCF 后台调试页面</h1>
+    
+    <div class="test">
+        <h3>1. 检查本地存储</h3>
+        <button onclick="checkStorage()">检查存储</button>
+        <div id="storageResult"></div>
+    </div>
+    
+    <div class="test">
+        <h3>2. 测试API连接</h3>
+        <button onclick="testAPI()">测试API</button>
+        <div id="apiResult"></div>
+    </div>
+    
+    <div class="test">
+        <h3>3. 测试登录</h3>
+        <button onclick="testLogin()">测试登录</button>
+        <div id="loginResult"></div>
+    </div>
+    
+    <div class="test">
+        <h3>4. 测试仪表盘API</h3>
+        <button onclick="testDashboard()">测试仪表盘</button>
+        <div id="dashboardResult"></div>
+    </div>
+    
+    <div class="test">
+        <h3>5. 清除数据</h3>
+        <button onclick="clearData()">清除本地数据</button>
+        <div id="clearResult"></div>
+    </div>
+    
+    <div class="test">
+        <h3>控制台日志</h3>
+        <div id="console" style="background: #000; color: #0f0; padding: 10px; height: 200px; overflow-y: auto;"></div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin + '/api';
+        const consoleDiv = document.getElementById('console');
+        
+        // 劫持console.log
+        const originalLog = console.log;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            consoleDiv.innerHTML += args.join(' ') + '<br>';
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        };
+        
+        function checkStorage() {
+            const token = localStorage.getItem('adminToken');
+            const user = localStorage.getItem('adminUser');
+            const result = document.getElementById('storageResult');
+            
+            result.innerHTML = `
+                <pre>Token: ${token ? '存在 (长度: ' + token.length + ')' : '不存在'}</pre>
+                <pre>User: ${user || '不存在'}</pre>
+            `;
+            result.className = token ? 'success' : 'error';
+        }
+        
+        async function testAPI() {
+            const result = document.getElementById('apiResult');
+            result.innerHTML = '<p>测试中...</p>';
+            
+            try {
+                console.log('测试基础API连接...');
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                result.innerHTML = `
+                    <pre>健康检查: ${JSON.stringify(data, null, 2)}</pre>
+                `;
+                result.className = response.ok ? 'success' : 'error';
+                console.log('API连接成功:', data);
+            } catch (error) {
+                result.innerHTML = `<pre>错误: ${error.message}</pre>`;
+                result.className = 'error';
+                console.log('API连接失败:', error);
+            }
+        }
+        
+        async function testLogin() {
+            const result = document.getElementById('loginResult');
+            result.innerHTML = '<p>登录测试中...</p>';
+            
+            try {
+                console.log('测试登录API...');
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'admin', password: 'admin123' })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    localStorage.setItem('adminToken', data.token);
+                    localStorage.setItem('adminUser', JSON.stringify(data.user));
+                    result.innerHTML = `
+                        <pre>登录成功!</pre>
+                        <pre>Token: ${data.token.substring(0, 50)}...</pre>
+                        <pre>User: ${JSON.stringify(data.user, null, 2)}</pre>
+                    `;
+                    result.className = 'success';
+                    console.log('登录成功:', data);
+                } else {
+                    result.innerHTML = `<pre>登录失败: ${data.error}</pre>`;
+                    result.className = 'error';
+                    console.log('登录失败:', data);
+                }
+            } catch (error) {
+                result.innerHTML = `<pre>错误: ${error.message}</pre>`;
+                result.className = 'error';
+                console.log('登录请求失败:', error);
+            }
+        }
+        
+        async function testDashboard() {
+            const result = document.getElementById('dashboardResult');
+            result.innerHTML = '<p>测试仪表盘API...</p>';
+            
+            const token = localStorage.getItem('adminToken');
+            if (!token) {
+                result.innerHTML = '<pre>错误: 没有登录token</pre>';
+                result.className = 'error';
+                return;
+            }
+            
+            try {
+                console.log('测试仪表盘API...');
+                const response = await fetch('/api/operational/dashboard', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await response.json();
+                
+                result.innerHTML = `
+                    <pre>状态: ${response.status}</pre>
+                    <pre>响应: ${JSON.stringify(data, null, 2)}</pre>
+                `;
+                result.className = response.ok ? 'success' : 'error';
+                console.log('仪表盘API结果:', data);
+            } catch (error) {
+                result.innerHTML = `<pre>错误: ${error.message}</pre>`;
+                result.className = 'error';
+                console.log('仪表盘API失败:', error);
+            }
+        }
+        
+        function clearData() {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUser');
+            const result = document.getElementById('clearResult');
+            result.innerHTML = '<pre>本地数据已清除</pre>';
+            result.className = 'info';
+            console.log('本地数据已清除');
+        }
+        
+        // 页面加载时自动检查
+        window.onload = function() {
+            console.log('调试页面已加载');
+            console.log('当前URL:', window.location.href);
+            console.log('API_BASE:', API_BASE);
+            checkStorage();
+        };
+    </script>
+</body>
+</html>

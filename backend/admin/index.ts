@@ -36,6 +36,13 @@ adminRouter.get('/index-enhanced', (req, res) => {
   res.sendFile(enhancedPath);
 });
 
+// 调试页面
+adminRouter.get('/debug', (req, res) => {
+  const debugPath = path.join(publicPath, 'debug.html');
+  console.log('Serving debug page from:', debugPath);
+  res.sendFile(debugPath);
+});
+
 // 兼容性路由 - 直接访问HTML文件
 adminRouter.get('/:page.html', (req, res) => {
   const pageName = req.params.page;

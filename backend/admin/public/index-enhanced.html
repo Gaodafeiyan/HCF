@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCF DeFi 后台管理系统</title>
+    <link rel="stylesheet" href="/admin/static/styles-enhanced.css">
+    <!-- 添加Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="root">
+        <div class="admin-container">
+            <header class="admin-header">
+                <h1>HCF DeFi 后台管理系统</h1>
+                <nav class="admin-nav">
+                    <button class="nav-btn active" data-section="dashboard">📊 仪表盘</button>
+                    <button class="nav-btn" data-section="parameters">⚙️ 参数管理</button>
+                    <button class="nav-btn" data-section="kyc">👤 KYC审核</button>
+                    <button class="nav-btn" data-section="monitoring">🚨 监控警报</button>
+                    <button class="nav-btn" data-section="analysis">📈 数据分析</button>
+                    <button class="nav-btn" data-section="nodes">🔗 节点管理</button>
+                    <button class="nav-btn" data-section="staking">💎 质押管理</button>
+                    <button class="nav-btn" data-section="ranking">🏆 排名系统</button>
+                </nav>
+            </header>
+            
+            <main class="admin-main">
+                <!-- 仪表盘 -->
+                <div id="dashboard" class="admin-section active">
+                    <h2>系统概览</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>总用户数</h3>
+                            <p id="totalUsers">
+                                <span class="loading"></span>
+                            </p>
+                            <div class="change positive">+12.5% ↑</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>总质押量</h3>
+                            <p id="totalStaking">
+                                <span class="loading"></span>
+                            </p>
+                            <div class="change positive">+8.3% ↑</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>活跃节点</h3>
+                            <p id="activeNodes">
+                                <span class="loading"></span>
+                            </p>
+                            <div class="change">稳定</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>日交易量</h3>
+                            <p id="dailyVolume">
+                                <span class="loading"></span>
+                            </p>
+                            <div class="change negative">-3.2% ↓</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 图表区域 -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3 class="chart-title">质押趋势图</h3>
+                            <div class="chart-legend">
+                                <div class="legend-item">
+                                    <span class="legend-color" style="background: #4A90E2;"></span>
+                                    <span>质押量</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color" style="background: #7B68EE;"></span>
+                                    <span>用户数</span>
+                                </div>
+                            </div>
+                        </div>
+                        <canvas id="stakingChart" width="400" height="150"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 参数管理 -->
+                <div id="parameters" class="admin-section">
+                    <h2>参数管理</h2>
+                    <div class="parameter-form">
+                        <div class="form-group">
+                            <label for="paramCategory">参数类别</label>
+                            <select id="paramCategory">
+                                <option value="">选择类别</option>
+                                <option value="staking">质押参数</option>
+                                <option value="tax">税费参数</option>
+                                <option value="referral">推荐参数</option>
+                                <option value="node">节点参数</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="paramKey">参数名称</label>
+                            <select id="paramKey">
+                                <option value="">先选择类别</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="paramValue">参数值</label>
+                            <input type="text" id="paramValue" placeholder="输入新值">
+                        </div>
+                        <div class="form-group">
+                            <label for="paramReason">修改原因</label>
+                            <textarea id="paramReason" rows="3" placeholder="请说明修改原因"></textarea>
+                        </div>
+                        <button class="btn-primary" onclick="updateParameter()">
+                            <span>⚡</span> 更新参数
+                        </button>
+                    </div>
+                    
+                    <!-- 参数历史记录 -->
+                    <h3>修改历史</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>参数</th>
+                                <th>原值</th>
+                                <th>新值</th>
+                                <th>操作者</th>
+                                <th>原因</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paramHistory">
+                            <tr>
+                                <td colspan="6" class="empty-state">
+                                    <div class="empty-state-icon">📋</div>
+                                    <div class="empty-state-title">暂无修改记录</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- KYC审核 -->
+                <div id="kyc" class="admin-section">
+                    <h2>KYC审核</h2>
+                    <div class="kyc-stats stats-grid">
+                        <div class="stat-card">
+                            <h3>待审核</h3>
+                            <p>23</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>已通过</h3>
+                            <p>156</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>已拒绝</h3>
+                            <p>12</p>
+                        </div>
+                    </div>
+                    
+                    <h3>待审核列表</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>用户ID</th>
+                                <th>钱包地址</th>
+                                <th>证件类型</th>
+                                <th>提交时间</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kycList">
+                            <tr>
+                                <td>USER001</td>
+                                <td>0x1234...5678</td>
+                                <td>身份证</td>
+                                <td>2024-01-15 14:30</td>
+                                <td><span class="status-badge pending">待审核</span></td>
+                                <td>
+                                    <button class="btn-success" onclick="approveKYC('USER001')">通过</button>
+                                    <button class="btn-danger" onclick="rejectKYC('USER001')">拒绝</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 监控警报 -->
+                <div id="monitoring" class="admin-section">
+                    <h2>监控警报</h2>
+                    <div class="alert-filters">
+                        <button class="btn-danger">🔴 严重 (3)</button>
+                        <button class="btn-warning">🟡 警告 (7)</button>
+                        <button class="btn-primary">🔵 信息 (15)</button>
+                    </div>
+                    
+                    <div id="alertList">
+                        <div class="alert-item critical">
+                            <span class="alert-icon">🚨</span>
+                            <div class="alert-content">
+                                <h4>价格异常波动</h4>
+                                <p>HCF价格在5分钟内下跌超过10%</p>
+                                <small>2024-01-15 15:45:23</small>
+                            </div>
+                            <button class="btn-primary">处理</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 数据分析 -->
+                <div id="analysis" class="admin-section">
+                    <h2>数据分析</h2>
+                    <div class="chart-container">
+                        <canvas id="volumeChart" width="400" height="150"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="userChart" width="400" height="150"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 节点管理 -->
+                <div id="nodes" class="admin-section">
+                    <h2>节点管理</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>总节点数</h3>
+                            <p>89 <span class="unit">/ 99</span></p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>在线节点</h3>
+                            <p>85</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>平均算力</h3>
+                            <p>98.5<span class="unit">%</span></p>
+                        </div>
+                    </div>
+                    
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>节点ID</th>
+                                <th>持有者</th>
+                                <th>算力</th>
+                                <th>在线率</th>
+                                <th>分红</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="nodeList">
+                            <tr>
+                                <td>NODE#001</td>
+                                <td>0xABCD...1234</td>
+                                <td>100%</td>
+                                <td>99.8%</td>
+                                <td>1,234 HCF</td>
+                                <td><span class="status-badge approved">在线</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 质押管理 -->
+                <div id="staking" class="admin-section">
+                    <h2>质押管理</h2>
+                    <div class="staking-levels">
+                        <h3>质押等级分布</h3>
+                        <canvas id="stakingLevelChart" width="400" height="150"></canvas>
+                    </div>
+                    
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>等级</th>
+                                <th>最小质押</th>
+                                <th>日化率</th>
+                                <th>LP加成</th>
+                                <th>用户数</th>
+                                <th>总质押量</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Level 1</td>
+                                <td>10 HCF</td>
+                                <td>0.4%</td>
+                                <td>0.8%</td>
+                                <td>523</td>
+                                <td>12,345 HCF</td>
+                            </tr>
+                            <tr>
+                                <td>Level 2</td>
+                                <td>100 HCF</td>
+                                <td>0.4%</td>
+                                <td>0.8%</td>
+                                <td>234</td>
+                                <td>45,678 HCF</td>
+                            </tr>
+                            <tr>
+                                <td>Level 3</td>
+                                <td>1,000 HCF</td>
+                                <td>0.5%</td>
+                                <td>1.0%</td>
+                                <td>156</td>
+                                <td>234,567 HCF</td>
+                            </tr>
+                            <tr>
+                                <td>Level 4</td>
+                                <td>10,000 HCF</td>
+                                <td>0.6%</td>
+                                <td>1.2%</td>
+                                <td>78</td>
+                                <td>1,234,567 HCF</td>
+                            </tr>
+                            <tr>
+                                <td>Level 5</td>
+                                <td>100,000 HCF</td>
+                                <td>0.8%</td>
+                                <td>1.6%</td>
+                                <td>12</td>
+                                <td>2,345,678 HCF</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 排名系统 -->
+                <div id="ranking" class="admin-section">
+                    <h2>排名系统</h2>
+                    <div class="ranking-tabs">
+                        <button class="btn-primary">质押排名</button>
+                        <button class="btn-primary">小区排名</button>
+                        <button class="btn-primary">节点排名</button>
+                    </div>
+                    
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>排名</th>
+                                <th>用户</th>
+                                <th>质押量</th>
+                                <th>团队等级</th>
+                                <th>小区业绩</th>
+                                <th>奖励加成</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rankingList">
+                            <tr>
+                                <td>🥇 1</td>
+                                <td>0x9876...5432</td>
+                                <td>500,000 HCF</td>
+                                <td>V6</td>
+                                <td>10,000,000 HCF</td>
+                                <td>20%</td>
+                            </tr>
+                            <tr>
+                                <td>🥈 2</td>
+                                <td>0x5432...9876</td>
+                                <td>450,000 HCF</td>
+                                <td>V5</td>
+                                <td>8,500,000 HCF</td>
+                                <td>20%</td>
+                            </tr>
+                            <tr>
+                                <td>🥉 3</td>
+                                <td>0x1357...2468</td>
+                                <td>420,000 HCF</td>
+                                <td>V5</td>
+                                <td>7,800,000 HCF</td>
+                                <td>20%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script src="/admin/static/admin-enhanced.js"></script>
+</body>
+</html>

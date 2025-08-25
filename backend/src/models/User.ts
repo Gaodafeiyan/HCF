@@ -4,6 +4,7 @@ export interface IUser extends Document {
   walletAddress: string;
   username?: string;
   password?: string;
+  role?: 'admin' | 'operator' | 'viewer';
   referrer: string | null;
   referralLevel: number;
   teamLevel: 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6' | null;
@@ -16,6 +17,18 @@ export interface IUser extends Document {
   referrals: string[];
   isActive: boolean;
   kycVerified: boolean;
+  kycDocuments?: {
+    idType: string;
+    idNumber: string;
+    documentUrl?: string;
+    uploadedAt: Date;
+    verifiedAt?: Date;
+    verifiedBy?: string;
+    rejectReason?: string;
+  };
+  lastLogin?: Date;
+  loginAttempts?: number;
+  lockedUntil?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +48,11 @@ const UserSchema = new Schema<IUser>({
   password: {
     type: String,
     select: false // 默认不返回密码字段
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'operator', 'viewer'],
+    default: 'viewer'
   },
   referrer: { 
     type: String, 
@@ -85,7 +103,22 @@ const UserSchema = new Schema<IUser>({
   kycVerified: { 
     type: Boolean, 
     default: false 
-  }
+  },
+  kycDocuments: {
+    idType: String,
+    idNumber: String,
+    documentUrl: String,
+    uploadedAt: Date,
+    verifiedAt: Date,
+    verifiedBy: String,
+    rejectReason: String
+  },
+  lastLogin: Date,
+  loginAttempts: { 
+    type: Number, 
+    default: 0 
+  },
+  lockedUntil: Date
 }, { 
   timestamps: true 
 });

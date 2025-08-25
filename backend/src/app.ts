@@ -21,7 +21,6 @@ import adminRouter from '../admin';
 
 // 控制器导入
 import { recalculateAllRankings } from './controllers/rankingController';
-import { updateDecayRates } from './controllers/parametersController';
 
 dotenv.config();
 
@@ -81,12 +80,12 @@ app.use('/api/operational', operationalRouter);
 // app.use('/api/kyc', kycRouter); // KYC功能已移除，保持去中心化
 app.use('/admin', adminRouter);
 
-// 定时任务 - 串联所有机制
+// 定时任务
 cron.schedule('0 0 * * *', async () => {
   console.log('🕐 执行每日定时任务...');
   try {
     await recalculateAllRankings(); // 重算排名
-    await updateDecayRates(); // 更新衰减率
+    // 注意：衰减率等合约参数必须通过智能合约调用修改
     console.log('✅ 每日任务完成');
   } catch (error) {
     console.error('❌ 每日任务失败:', error);

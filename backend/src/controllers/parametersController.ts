@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import Parameter from '../models/Parameter';
-import { multiSigManager } from '../utils/multiSig';
 
+// 获取参数列表
 export const getParameters = async (req: Request, res: Response) => {
   try {
     const { category } = req.query;
@@ -14,6 +14,7 @@ export const getParameters = async (req: Request, res: Response) => {
   }
 };
 
+// 更新链下参数（仅影响前端显示，不影响合约）
 export const updateParameter = async (req: Request, res: Response) => {
   try {
     const { key, value, description } = req.body;
@@ -26,29 +27,8 @@ export const updateParameter = async (req: Request, res: Response) => {
       return res.status(404).json({ error: '参数不存在' });
     }
 
-    // 检查是否需要多签确认
-    const criticalParams = ['dailyYieldBase', 'buyTaxRate', 'sellTaxRate', 'decayRate'];
-    if (criticalParams.includes(key)) {
-      // 创建多签交易
-      const txData = {
-        to: process.env.HCF_TOKEN_ADDRESS || '',
-        value: '0',
-        data: '0x', // 这里应该包含实际的合约调用数据
-        nonce: 0
-      };
-      
-      const multiSigTx = await multiSigManager.createTransaction(txData);
-      
-      // 等待多签确认
-      const isExecutable = await multiSigManager.isExecutable(multiSigTx.nonce.toString());
-      
-      if (!isExecutable) {
-        return res.status(400).json({ 
-          error: '需要多签确认', 
-          multiSigTx: multiSigTx.nonce 
-        });
-      }
-    }
+    // 警告：这些参数仅用于前端显示，不会影响智能合约
+    console.log(`⚠️ 更新链下参数: ${key} = ${value} (仅影响前端显示)`);
 
     // 更新参数
     const oldValue = parameter.value;
@@ -61,52 +41,21 @@ export const updateParameter = async (req: Request, res: Response) => {
       value: oldValue,
       timestamp: new Date(),
       updatedBy,
-      multiSigTx: criticalParams.includes(key) ? 'confirmed' : undefined
+      note: 'offchain_only' // 明确标记为链下参数
     });
 
     await parameter.save();
 
     res.json({ 
       success: true, 
-      message: '参数更新成功',
-      data: parameter 
+      message: '链下参数更新成功（不影响合约）',
+      data: parameter,
+      warning: '此参数仅影响前端显示，实际合约参数需通过区块链交易修改'
     });
   } catch (error: any) {
     res.status(500).json({ error: '参数更新失败', details: error.message });
   }
 };
 
-export const updateDecayRates = async () => {
-  try {
-    console.log('🔄 开始更新衰减率...');
-    
-    // 获取总质押量 (这里应该从合约获取)
-    const totalStaked = 0; // 简化版本
-    
-    // 如果总质押超过1亿，应用衰减
-    if (totalStaked > 100_000_000) {
-      const decayRate = 0.001; // 0.1%衰减
-      
-      // 更新所有质押池的收益率
-      const pools = [0, 1, 2, 3, 4];
-      for (const pool of pools) {
-        const paramKey = `pool${pool}DailyRate`;
-        const currentRate = await getParameterValue(paramKey);
-        const newRate = Math.max(0, currentRate - decayRate);
-        
-        // 这里应该调用参数更新逻辑
-        console.log(`池${pool}收益率从${currentRate}更新为${newRate}`);
-      }
-      
-      console.log('✅ 衰减率更新完成');
-    }
-  } catch (error: any) {
-    console.error('❌ 衰减率更新失败:', error);
-  }
-};
-
-// 辅助函数
-async function getParameterValue(key: string): Promise<number> {
-  const param = await Parameter.findOne({ key });
-  return param ? parseFloat(param.value) : 0;
-}
+// 注意：已删除无效的衰减率函数和虚假的多签机制
+// 所有影响合约的参数必须通过智能合约直接调用修改

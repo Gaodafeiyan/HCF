@@ -16,6 +16,7 @@ import nodesRouter from './routes/nodes';
 import controlsRouter from './routes/controls';
 import monitoringRouter from './routes/monitoring';
 import operationalRouter from './routes/operational';
+import kycRouter from './routes/kyc';
 import adminRouter from '../admin/index';
 
 // 控制器导入
@@ -39,6 +40,9 @@ app.use(helmet({
 }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// 静态文件服务 - 用于访问上传的文档
+app.use('/uploads', express.static(require('path').join(__dirname, '../uploads')));
 
 // 限流配置
 const limiter = rateLimit({
@@ -66,6 +70,7 @@ app.use('/api/nodes', nodesRouter);
 app.use('/api/controls', controlsRouter);
 app.use('/api/monitoring', monitoringRouter);
 app.use('/api/operational', operationalRouter);
+app.use('/api/kyc', kycRouter);
 app.use('/admin', adminRouter);
 
 // 定时任务 - 串联所有机制

@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCF 智能合约管理工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .warning {
+            background: #ff6b6b;
+            color: white;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            background: none;
+            font-size: 16px;
+        }
+        .tab:hover { background: #e9ecef; }
+        .tab.active {
+            background: white;
+            border-bottom: 3px solid #667eea;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .content {
+            padding: 30px;
+        }
+        .section {
+            display: none;
+        }
+        .section.active {
+            display: block;
+        }
+        .contract-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #dee2e6;
+        }
+        .contract-card h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .param-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 5px;
+        }
+        .param-name {
+            font-weight: 500;
+            color: #495057;
+        }
+        .param-value {
+            color: #667eea;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        .param-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5a67d8;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-danger {
+            background: #ff6b6b;
+            color: white;
+        }
+        .btn-success {
+            background: #51cf66;
+            color: white;
+        }
+        .wallet-status {
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .status-connected {
+            color: #51cf66;
+            font-weight: bold;
+        }
+        .status-disconnected {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+        .code-block {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .network-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            background: #48bb78;
+            color: white;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 HCF 智能合约管理工具</h1>
+            <p>安全地查看和管理链上参数</p>
+            <span class="network-badge">BSC Mainnet</span>
+        </div>
+
+        <div class="warning">
+            ⚠️ 警告：修改合约参数需要Owner权限和Gas费，请谨慎操作！
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showSection('wallet')">🔗 钱包连接</button>
+            <button class="tab" onclick="showSection('view')">👁️ 查看参数</button>
+            <button class="tab" onclick="showSection('modify')">✏️ 修改参数</button>
+            <button class="tab" onclick="showSection('tools')">🛠️ 工具箱</button>
+            <button class="tab" onclick="showSection('guide')">📚 使用指南</button>
+        </div>
+
+        <div class="content">
+            <!-- 钱包连接 -->
+            <div id="wallet" class="section active">
+                <h2>钱包连接状态</h2>
+                <div class="wallet-status">
+                    <p>连接状态: <span id="walletStatus" class="status-disconnected">未连接</span></p>
+                    <p>钱包地址: <span id="walletAddress">-</span></p>
+                    <p>网络: <span id="networkName">-</span></p>
+                    <p>BNB余额: <span id="bnbBalance">-</span></p>
+                    <p>是否为Owner: <span id="isOwner">-</span></p>
+                    <br>
+                    <button class="btn btn-primary" onclick="connectWallet()">连接MetaMask</button>
+                    <button class="btn btn-secondary" onclick="disconnectWallet()">断开连接</button>
+                </div>
+
+                <h3 style="margin-top: 30px;">合约地址配置</h3>
+                <div class="contract-card">
+                    <div class="param-row">
+                        <span>HCFToken:</span>
+                        <input type="text" id="tokenAddress" placeholder="0x..." style="width: 400px; padding: 5px;">
+                    </div>
+                    <div class="param-row">
+                        <span>HCFStaking:</span>
+                        <input type="text" id="stakingAddress" placeholder="0x..." style="width: 400px; padding: 5px;">
+                    </div>
+                    <div class="param-row">
+                        <span>HCFNodeNFT:</span>
+                        <input type="text" id="nodeAddress" placeholder="0x..." style="width: 400px; padding: 5px;">
+                    </div>
+                    <button class="btn btn-success" onclick="saveAddresses()">保存地址</button>
+                </div>
+            </div>
+
+            <!-- 查看参数 -->
+            <div id="view" class="section">
+                <h2>链上参数查看（只读）</h2>
+                
+                <div class="contract-card">
+                    <h3>HCFToken - 代币参数</h3>
+                    <div class="param-row">
+                        <span class="param-name">总供应量</span>
+                        <span class="param-value" id="totalSupply">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">买入税率</span>
+                        <span class="param-value" id="buyTax">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">卖出税率</span>
+                        <span class="param-value" id="sellTax">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">转账税率</span>
+                        <span class="param-value" id="transferTax">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <button class="btn btn-primary" onclick="refreshTokenParams()">刷新数据</button>
+                </div>
+
+                <div class="contract-card">
+                    <h3>HCFStaking - 质押参数</h3>
+                    <div class="param-row">
+                        <span class="param-name">Pool 0 日化率</span>
+                        <span class="param-value" id="pool0Rate">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">Pool 1 日化率</span>
+                        <span class="param-value" id="pool1Rate">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">LP奖励倍数</span>
+                        <span class="param-value" id="lpMultiplier">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">双循环倍数</span>
+                        <span class="param-value" id="dualMultiplier">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <button class="btn btn-primary" onclick="refreshStakingParams()">刷新数据</button>
+                </div>
+
+                <div class="contract-card">
+                    <h3>HCFNodeNFT - 节点参数</h3>
+                    <div class="param-row">
+                        <span class="param-name">最大节点数</span>
+                        <span class="param-value">99（常量）</span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">当前节点数</span>
+                        <span class="param-value" id="currentNodes">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-name">申请费用</span>
+                        <span class="param-value" id="applicationFee">
+                            <span class="loading"></span>
+                        </span>
+                    </div>
+                    <button class="btn btn-primary" onclick="refreshNodeParams()">刷新数据</button>
+                </div>
+            </div>
+
+            <!-- 修改参数 -->
+            <div id="modify" class="section">
+                <h2>修改链上参数（需要Owner权限）</h2>
+                
+                <div class="contract-card">
+                    <h3>修改税率</h3>
+                    <div class="param-row">
+                        <span>买入税率 (%)</span>
+                        <input type="number" id="newBuyTax" min="0" max="10" step="0.1" placeholder="2">
+                        <button class="btn btn-danger" onclick="setBuyTax()">修改</button>
+                    </div>
+                    <div class="param-row">
+                        <span>卖出税率 (%)</span>
+                        <input type="number" id="newSellTax" min="0" max="10" step="0.1" placeholder="5">
+                        <button class="btn btn-danger" onclick="setSellTax()">修改</button>
+                    </div>
+                    <p style="color: #ff6b6b; margin-top: 10px;">
+                        ⚠️ 修改税率会直接影响所有用户的交易成本！
+                    </p>
+                </div>
+
+                <div class="contract-card">
+                    <h3>修改质押参数</h3>
+                    <div class="param-row">
+                        <span>Pool 0 日化率 (%)</span>
+                        <input type="number" id="newPool0Rate" min="0" max="5" step="0.01" placeholder="0.4">
+                    </div>
+                    <div class="param-row">
+                        <span>Pool 1 日化率 (%)</span>
+                        <input type="number" id="newPool1Rate" min="0" max="5" step="0.01" placeholder="0.8">
+                    </div>
+                    <button class="btn btn-danger" onclick="updatePoolRates()">批量更新</button>
+                    <p style="color: #ff6b6b; margin-top: 10px;">
+                        ⚠️ 修改收益率会影响所有质押用户的收益！
+                    </p>
+                </div>
+            </div>
+
+            <!-- 工具箱 -->
+            <div id="tools" class="section">
+                <h2>实用工具</h2>
+                
+                <div class="contract-card">
+                    <h3>合约调用代码生成器</h3>
+                    <select id="contractSelect" onchange="updateFunctions()">
+                        <option value="">选择合约</option>
+                        <option value="token">HCFToken</option>
+                        <option value="staking">HCFStaking</option>
+                        <option value="node">HCFNodeNFT</option>
+                    </select>
+                    <select id="functionSelect" style="margin-left: 10px;">
+                        <option value="">选择函数</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="generateCode()">生成代码</button>
+                    
+                    <div class="code-block" id="generatedCode" style="display: none;">
+                        // 生成的代码将显示在这里
+                    </div>
+                </div>
+
+                <div class="contract-card">
+                    <h3>Gas费估算</h3>
+                    <div class="param-row">
+                        <span>当前Gas价格:</span>
+                        <span id="gasPrice">-</span>
+                    </div>
+                    <div class="param-row">
+                        <span>预估Gas费用:</span>
+                        <span id="estimatedGas">-</span>
+                    </div>
+                    <button class="btn btn-primary" onclick="estimateGas()">更新Gas费</button>
+                </div>
+
+                <div class="contract-card">
+                    <h3>合约验证链接</h3>
+                    <p>在BSCScan上验证和管理合约：</p>
+                    <ul style="margin-top: 10px; list-style: none;">
+                        <li>📄 <a href="#" id="tokenBscLink" target="_blank">HCFToken合约</a></li>
+                        <li>📄 <a href="#" id="stakingBscLink" target="_blank">HCFStaking合约</a></li>
+                        <li>📄 <a href="#" id="nodeBscLink" target="_blank">HCFNodeNFT合约</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- 使用指南 -->
+            <div id="guide" class="section">
+                <h2>使用指南</h2>
+                
+                <div class="contract-card">
+                    <h3>1. 准备工作</h3>
+                    <ul style="margin-left: 20px;">
+                        <li>确保您是合约Owner</li>
+                        <li>安装MetaMask钱包</li>
+                        <li>准备足够的BNB作为Gas费</li>
+                        <li>获取合约地址</li>
+                    </ul>
+                </div>
+
+                <div class="contract-card">
+                    <h3>2. 连接钱包</h3>
+                    <ol style="margin-left: 20px;">
+                        <li>点击"连接MetaMask"按钮</li>
+                        <li>选择BSC主网（Chain ID: 56）</li>
+                        <li>确认钱包地址是否为Owner</li>
+                    </ol>
+                </div>
+
+                <div class="contract-card">
+                    <h3>3. 查看参数</h3>
+                    <p>切换到"查看参数"标签，点击"刷新数据"获取最新链上数据。</p>
+                </div>
+
+                <div class="contract-card">
+                    <h3>4. 修改参数</h3>
+                    <ol style="margin-left: 20px;">
+                        <li>切换到"修改参数"标签</li>
+                        <li>输入新的参数值</li>
+                        <li>点击修改按钮</li>
+                        <li>在MetaMask中确认交易</li>
+                        <li>等待交易确认</li>
+                    </ol>
+                </div>
+
+                <div class="contract-card">
+                    <h3>5. 安全建议</h3>
+                    <ul style="margin-left: 20px; color: #ff6b6b;">
+                        <li>⚠️ 修改前请确认参数值正确</li>
+                        <li>⚠️ 建议先在测试网测试</li>
+                        <li>⚠️ 重大修改前通知社区</li>
+                        <li>⚠️ 保护好Owner私钥</li>
+                        <li>⚠️ 考虑使用多签钱包</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 切换标签
+        function showSection(sectionId) {
+            // 隐藏所有section
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            // 显示目标section
+            document.getElementById(sectionId).classList.add('active');
+            
+            // 更新标签状态
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        // 模拟钱包连接（实际需要Web3.js）
+        async function connectWallet() {
+            // 这里应该使用真实的Web3连接
+            alert('连接钱包功能需要集成Web3.js\n\n实际步骤：\n1. 检测MetaMask\n2. 请求账户授权\n3. 切换到BSC网络\n4. 获取账户信息');
+            
+            // 模拟连接成功
+            document.getElementById('walletStatus').className = 'status-connected';
+            document.getElementById('walletStatus').textContent = '已连接';
+            document.getElementById('walletAddress').textContent = '0x1234...5678';
+            document.getElementById('networkName').textContent = 'BSC Mainnet';
+            document.getElementById('bnbBalance').textContent = '1.234 BNB';
+            document.getElementById('isOwner').textContent = '是 ✓';
+        }
+
+        function disconnectWallet() {
+            document.getElementById('walletStatus').className = 'status-disconnected';
+            document.getElementById('walletStatus').textContent = '未连接';
+            document.getElementById('walletAddress').textContent = '-';
+            document.getElementById('networkName').textContent = '-';
+            document.getElementById('bnbBalance').textContent = '-';
+            document.getElementById('isOwner').textContent = '-';
+        }
+
+        // 模拟刷新参数
+        function refreshTokenParams() {
+            setTimeout(() => {
+                document.getElementById('totalSupply').textContent = '1,000,000,000 HCF';
+                document.getElementById('buyTax').textContent = '2%';
+                document.getElementById('sellTax').textContent = '5%';
+                document.getElementById('transferTax').textContent = '1%';
+            }, 1000);
+        }
+
+        function refreshStakingParams() {
+            setTimeout(() => {
+                document.getElementById('pool0Rate').textContent = '0.4%';
+                document.getElementById('pool1Rate').textContent = '0.8%';
+                document.getElementById('lpMultiplier').textContent = '2x';
+                document.getElementById('dualMultiplier').textContent = '100x';
+            }, 1000);
+        }
+
+        function refreshNodeParams() {
+            setTimeout(() => {
+                document.getElementById('currentNodes').textContent = '23 / 99';
+                document.getElementById('applicationFee').textContent = '5000 BSDT';
+            }, 1000);
+        }
+
+        // 修改参数（模拟）
+        function setBuyTax() {
+            const newTax = document.getElementById('newBuyTax').value;
+            if (!newTax) {
+                alert('请输入新的税率');
+                return;
+            }
+            
+            if (confirm(`确定要将买入税率修改为 ${newTax}% 吗？\n\n这将需要支付Gas费并影响所有用户。`)) {
+                alert(`交易步骤：\n1. 调用 setBuyTaxRate(${newTax * 100})\n2. 确认MetaMask交易\n3. 等待区块确认\n\n预计Gas费: ~0.002 BNB`);
+            }
+        }
+
+        // 生成代码
+        function generateCode() {
+            const contract = document.getElementById('contractSelect').value;
+            const func = document.getElementById('functionSelect').value;
+            
+            if (!contract || !func) {
+                alert('请选择合约和函数');
+                return;
+            }
+            
+            const code = `
+// Web3.js 调用示例
+const contract = new web3.eth.Contract(ABI, CONTRACT_ADDRESS);
+const result = await contract.methods.${func}()
+    .send({ from: ownerAddress })
+    .on('receipt', (receipt) => {
+        console.log('交易成功:', receipt);
+    })
+    .on('error', (error) => {
+        console.error('交易失败:', error);
+    });
+            `;
+            
+            document.getElementById('generatedCode').style.display = 'block';
+            document.getElementById('generatedCode').textContent = code;
+        }
+
+        // 更新函数列表
+        function updateFunctions() {
+            const contract = document.getElementById('contractSelect').value;
+            const select = document.getElementById('functionSelect');
+            
+            const functions = {
+                token: ['setBuyTaxRate', 'setSellTaxRate', 'setTransferTaxRate', 'withdrawMarketing'],
+                staking: ['updateLevelRates', 'setLPMultiplier', 'toggleStaking', 'emergencyWithdraw'],
+                node: ['setApplicationFee', 'setActivationAmount', 'updateNodeStatus']
+            };
+            
+            select.innerHTML = '<option value="">选择函数</option>';
+            
+            if (contract && functions[contract]) {
+                functions[contract].forEach(func => {
+                    select.innerHTML += `<option value="${func}">${func}</option>`;
+                });
+            }
+        }
+
+        // 页面加载时的提示
+        window.onload = function() {
+            console.log('合约管理工具已加载');
+            console.log('注意：这是一个演示界面，实际使用需要集成Web3.js');
+        };
+    </script>
+</body>
+</html>

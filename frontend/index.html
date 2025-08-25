@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCF DeFi - 去中心化金融平台</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .wallet-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .network-badge {
+            padding: 8px 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .network-badge.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .connect-wallet {
+            padding: 12px 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .connect-wallet:hover {
+            transform: translateY(-2px);
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-icon {
+            width: 30px;
+            height: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+        
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn-primary {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 10px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .info-box {
+            padding: 15px;
+            background: #e8f4fd;
+            border-left: 4px solid #2196F3;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        
+        .warning-box {
+            padding: 15px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        
+        .pool-levels {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .pool-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        
+        .pool-item:hover {
+            background: #e9ecef;
+        }
+        
+        .pool-item.selected {
+            border-color: #667eea;
+            background: #f0f5ff;
+        }
+        
+        .pool-info {
+            flex: 1;
+        }
+        
+        .pool-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .pool-details {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .pool-apy {
+            font-size: 20px;
+            font-weight: bold;
+            color: #28a745;
+        }
+        
+        .referral-link {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+        
+        .referral-link input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            background: white;
+        }
+        
+        .copy-btn {
+            margin-top: 10px;
+            padding: 8px 15px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .transaction-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .tx-item {
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        .tx-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        
+        .tx-type {
+            font-weight: bold;
+        }
+        
+        .tx-time {
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .tx-details {
+            color: #666;
+            font-size: 12px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: white;
+            margin-top: 50px;
+        }
+        
+        .footer a {
+            color: white;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">🚀 HCF DeFi</div>
+            <div class="wallet-section">
+                <div class="network-badge" id="networkBadge">
+                    <span class="network-icon">🔗</span>
+                    <span id="networkName">未连接</span>
+                </div>
+                <button class="connect-wallet" id="connectWallet" onclick="connectWallet()">
+                    连接钱包
+                </button>
+            </div>
+        </header>
+        
+        <div class="main-content">
+            <!-- 账户信息 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">👤</div>
+                    账户信息
+                </h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">HCF余额</div>
+                        <div class="stat-value" id="hcfBalance">0.00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">BSDT余额</div>
+                        <div class="stat-value" id="bsdtBalance">0.00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">质押总量</div>
+                        <div class="stat-value" id="totalStaked">0.00</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">待领收益</div>
+                        <div class="stat-value" id="pendingRewards">0.00</div>
+                    </div>
+                </div>
+                <button class="btn-primary" onclick="claimRewards()">
+                    领取收益
+                </button>
+            </div>
+            
+            <!-- 兑换功能 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">💱</div>
+                    代币兑换
+                </h2>
+                <div class="tabs">
+                    <button class="tab active" onclick="switchSwapTab('buy')">买入HCF</button>
+                    <button class="tab" onclick="switchSwapTab('sell')">卖出HCF</button>
+                    <button class="tab" onclick="switchSwapTab('bridge')">HCF⇄BSDT</button>
+                </div>
+                
+                <div id="swapContent">
+                    <div class="info-box">
+                        买入税率: 2% | 卖出税率: 5% | 转账税率: 1%
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>支付数量 (BNB)</label>
+                        <input type="number" id="swapAmount" placeholder="0.0" step="0.01">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label>预计获得 (HCF)</label>
+                        <input type="number" id="receiveAmount" placeholder="0.0" readonly>
+                    </div>
+                    
+                    <button class="btn-primary" onclick="executeSwap()">
+                        确认兑换
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 质押功能 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">💎</div>
+                    质押挖矿
+                </h2>
+                
+                <div class="pool-levels">
+                    <div class="pool-item" onclick="selectPool(0)">
+                        <div class="pool-info">
+                            <div class="pool-name">Level 0 - 入门池</div>
+                            <div class="pool-details">最低: 10 HCF | LP加成: 0.8%</div>
+                        </div>
+                        <div class="pool-apy">0.4%/日</div>
+                    </div>
+                    
+                    <div class="pool-item" onclick="selectPool(1)">
+                        <div class="pool-info">
+                            <div class="pool-name">Level 1 - 标准池</div>
+                            <div class="pool-details">最低: 100 HCF | LP加成: 0.8%</div>
+                        </div>
+                        <div class="pool-apy">0.4%/日</div>
+                    </div>
+                    
+                    <div class="pool-item" onclick="selectPool(2)">
+                        <div class="pool-info">
+                            <div class="pool-name">Level 2 - 进阶池</div>
+                            <div class="pool-details">最低: 1,000 HCF | LP加成: 1.0%</div>
+                        </div>
+                        <div class="pool-apy">0.5%/日</div>
+                    </div>
+                    
+                    <div class="pool-item" onclick="selectPool(3)">
+                        <div class="pool-info">
+                            <div class="pool-name">Level 3 - 高级池</div>
+                            <div class="pool-details">最低: 10,000 HCF | LP加成: 1.2%</div>
+                        </div>
+                        <div class="pool-apy">0.6%/日</div>
+                    </div>
+                    
+                    <div class="pool-item" onclick="selectPool(4)">
+                        <div class="pool-info">
+                            <div class="pool-name">Level 4 - 顶级池</div>
+                            <div class="pool-details">最低: 100,000 HCF | LP加成: 1.6%</div>
+                        </div>
+                        <div class="pool-apy">0.8%/日</div>
+                    </div>
+                </div>
+                
+                <div class="input-group" style="margin-top: 20px;">
+                    <label>质押数量</label>
+                    <input type="number" id="stakeAmount" placeholder="输入质押数量">
+                </div>
+                
+                <button class="btn-primary" onclick="stake()">
+                    确认质押
+                </button>
+            </div>
+            
+            <!-- 推荐系统 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">👥</div>
+                    推荐系统
+                </h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">直推人数</div>
+                        <div class="stat-value" id="directReferrals">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">团队人数</div>
+                        <div class="stat-value" id="teamSize">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">团队等级</div>
+                        <div class="stat-value" id="teamLevel">V0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">推荐收益</div>
+                        <div class="stat-value" id="referralEarnings">0.00</div>
+                    </div>
+                </div>
+                
+                <div class="input-group">
+                    <label>绑定推荐人（只能绑定一次）</label>
+                    <input type="text" id="referrerAddress" placeholder="输入推荐人地址">
+                </div>
+                <button class="btn-primary" onclick="bindReferrer()">
+                    绑定推荐人
+                </button>
+                
+                <div class="referral-link">
+                    <label style="font-size: 14px; color: #666;">我的推荐链接</label>
+                    <input type="text" id="myReferralLink" readonly value="正在生成...">
+                    <button class="copy-btn" onclick="copyReferralLink()">复制链接</button>
+                </div>
+            </div>
+            
+            <!-- 节点系统 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">🔗</div>
+                    节点系统
+                </h2>
+                
+                <div class="warning-box">
+                    限量99个节点，享受4种收益分红
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">节点状态</div>
+                        <div class="stat-value" id="nodeStatus">未持有</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">节点算力</div>
+                        <div class="stat-value" id="nodePower">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">剩余名额</div>
+                        <div class="stat-value" id="nodesRemaining">99/99</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">节点分红</div>
+                        <div class="stat-value" id="nodeRewards">0.00</div>
+                    </div>
+                </div>
+                
+                <button class="btn-primary" onclick="applyForNode()">
+                    申请节点（需要5000 BSDT）
+                </button>
+                
+                <button class="btn-primary" onclick="activateNode()" style="margin-top: 10px;">
+                    激活节点（需要1000 HCF + 1000 LP）
+                </button>
+            </div>
+            
+            <!-- 交易记录 -->
+            <div class="card">
+                <h2>
+                    <div class="card-icon">📊</div>
+                    最近交易
+                </h2>
+                
+                <div class="transaction-list" id="transactionList">
+                    <div class="tx-item">
+                        <div class="tx-header">
+                            <span class="tx-type">质押</span>
+                            <span class="tx-time">2分钟前</span>
+                        </div>
+                        <div class="tx-details">
+                            质押 1000 HCF 到 Level 2 池
+                        </div>
+                    </div>
+                    
+                    <div class="tx-item">
+                        <div class="tx-header">
+                            <span class="tx-type">领取收益</span>
+                            <span class="tx-time">1小时前</span>
+                        </div>
+                        <div class="tx-details">
+                            领取 5.23 HCF 质押收益
+                        </div>
+                    </div>
+                    
+                    <div class="tx-item">
+                        <div class="tx-header">
+                            <span class="tx-type">买入</span>
+                            <span class="tx-time">3小时前</span>
+                        </div>
+                        <div class="tx-details">
+                            使用 0.5 BNB 买入 1234.56 HCF
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="footer">
+            <p>HCF DeFi © 2024 | 真正的去中心化金融平台</p>
+            <div>
+                <a href="#" onclick="openDocs()">📚 文档</a>
+                <a href="#" onclick="openContract()">📜 合约</a>
+                <a href="#" onclick="openTelegram()">💬 Telegram</a>
+                <a href="#" onclick="openTwitter()">🐦 Twitter</a>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="./js/web3.min.js"></script>
+    <script src="./js/app.js"></script>
+</body>
+</html>

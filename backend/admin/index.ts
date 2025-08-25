@@ -16,11 +16,26 @@ adminRouter.get('/login', (req, res) => {
   res.sendFile(loginPath);
 });
 
-// 后台管理主页
+// 后台管理主页 (默认)
 adminRouter.get('/', (req, res) => {
   const indexPath = path.join(publicPath, 'index.html');
   console.log('Serving admin page from:', indexPath);
   res.sendFile(indexPath);
+});
+
+// 增强版后台管理页面
+adminRouter.get('/index-enhanced', (req, res) => {
+  const enhancedPath = path.join(publicPath, 'index-enhanced.html');
+  console.log('Serving enhanced admin page from:', enhancedPath);
+  res.sendFile(enhancedPath);
+});
+
+// 兼容性路由 - 直接访问HTML文件
+adminRouter.get('/:page.html', (req, res) => {
+  const pageName = req.params.page;
+  const pagePath = path.join(publicPath, `${pageName}.html`);
+  console.log(`Serving ${pageName}.html from:`, pagePath);
+  res.sendFile(pagePath);
 });
 
 export default adminRouter;

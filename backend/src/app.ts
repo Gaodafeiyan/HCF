@@ -27,6 +27,9 @@ dotenv.config();
 
 const app = express();
 
+// 配置信任代理 - 修复rate-limit错误
+app.set('trust proxy', true);
+
 // 中间件
 app.use(helmet({
   contentSecurityPolicy: {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authMiddleware, adminMiddleware } from '../middleware/auth';
+import { authMiddleware, adminMiddleware, operatorMiddleware } from '../middleware/auth';
 import User from '../models/User';
 import Monitoring from '../models/Monitoring';
 

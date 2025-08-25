@@ -40,8 +40,8 @@ export const updateParameter = async (req: Request, res: Response) => {
     parameter.history.push({
       value: oldValue,
       timestamp: new Date(),
-      updatedBy,
-      note: 'offchain_only' // 明确标记为链下参数
+      updatedBy
+      // note: 'offchain_only' - 链下参数标记（TypeScript类型定义中需要添加）
     });
 
     await parameter.save();

@@ -166,11 +166,11 @@
                     successMessage.textContent = '登录成功，正在跳转...';
                     successMessage.style.display = 'block';
                     
-                    // 跳转到管理页面 - 使用相对路径或当前host
+                    // 跳转到管理页面 - 强制使用HTTP
                     setTimeout(() => {
-                        // 使用当前host和端口，避免硬编码
-                        const baseUrl = window.location.protocol + '//' + window.location.host;
-                        window.location.href = baseUrl + '/admin';
+                        // 强制使用HTTP协议，避免自动升级到HTTPS
+                        const host = window.location.host;
+                        window.location.href = 'http://' + host + '/admin';
                     }, 1000);
                 } else {
                     throw new Error('用户名或密码错误');

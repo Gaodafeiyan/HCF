@@ -178,9 +178,9 @@
                     successMessage.textContent = `欢迎回来，${data.user.username}! 正在跳转...`;
                     successMessage.style.display = 'block';
                     
-                    // 跳转到管理页面
+                    // 跳转到增强版管理页面
                     setTimeout(() => {
-                        window.location.href = '/admin';
+                        window.location.href = '/admin/index-enhanced';
                     }, 1000);
                 } else {
                     throw new Error(data.error || '登录失败，请检查用户名和密码');

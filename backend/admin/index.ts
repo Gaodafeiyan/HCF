@@ -16,10 +16,16 @@ adminRouter.get('/login', (req, res) => {
   res.sendFile(loginPath);
 });
 
-// 后台管理主页 (默认)
+// 后台管理主页 (默认) - 重定向到增强版
 adminRouter.get('/', (req, res) => {
+  console.log('Redirecting to enhanced admin page');
+  res.redirect('/admin/index-enhanced');
+});
+
+// 基础版后台管理页面
+adminRouter.get('/index', (req, res) => {
   const indexPath = path.join(publicPath, 'index.html');
-  console.log('Serving admin page from:', indexPath);
+  console.log('Serving basic admin page from:', indexPath);
   res.sendFile(indexPath);
 });
 

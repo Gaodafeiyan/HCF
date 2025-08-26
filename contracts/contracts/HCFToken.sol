@@ -11,6 +11,10 @@ interface IBSDT {
     function balanceOf(address account) external view returns (uint256);
 }
 
+interface IMultiSigWallet {
+    function submitTransaction(address _to, uint256 _value, bytes memory _data) external returns (uint256);
+}
+
 contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     // Token Economics
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 * 10**18; // 10亿
@@ -46,7 +50,8 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     address public marketingWallet;
     address public lpWallet;
     address public nodeWallet;
-    address public reserveWallet; // 储备金钱包
+    address public reserveWallet; // 储备金钱包（多签控制）
+    address public multiSigWallet; // 多签钱包地址
     
     // LP Mining (98.1% = 9.81亿奖励LP提供者)
     uint256 public miningPool = MINING_REWARDS; // 9.81亿LP挖矿奖励
@@ -59,11 +64,17 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     mapping(address => bool) public isDEXPair;
     bool public tradingEnabled = false;
     
+    // Burn tracking
+    uint256 public totalBurned;
+    uint256 public constant BURN_STOP_SUPPLY = 990_000 * 10**18; // 销毁停止在99万
+    
     // Events
     event TaxDistribution(uint256 burned, uint256 marketing, uint256 lp, uint256 nodes);
     event LPMiningReward(address indexed user, uint256 amount);
     event TradingEnabled();
     event LPMiningContractSet(address indexed oldContract, address indexed newContract);
+    event TokensBurned(uint256 amount, uint256 totalBurned);
+    event BurningStopped(uint256 totalSupply);
     
     constructor(
         address _bsdtToken,
@@ -93,15 +104,17 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         isExcludedFromTax[reserveWallet] = true;
     }
     
-    // Tax Management
-    function setTaxRates(uint256 _buyTax, uint256 _sellTax, uint256 _transferTax) external onlyOwner {
+    // Tax Management (需要多签批准)
+    function setTaxRates(uint256 _buyTax, uint256 _sellTax, uint256 _transferTax) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
         require(_buyTax <= 1000 && _sellTax <= 1000 && _transferTax <= 1000, "Tax too high");
         buyTaxRate = _buyTax;
         sellTaxRate = _sellTax;
         transferTaxRate = _transferTax;
     }
     
-    function setBuyTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external onlyOwner {
+    function setBuyTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
         require(_burn + _marketing + _lp + _node == 10000, "Must equal 100%");
         buyBurnRate = _burn;
         buyMarketingRate = _marketing;
@@ -109,7 +122,8 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         buyNodeRate = _node;
     }
     
-    function setSellTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external onlyOwner {
+    function setSellTaxDistribution(uint256 _burn, uint256 _marketing, uint256 _lp, uint256 _node) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
         require(_burn + _marketing + _lp + _node == 10000, "Must equal 100%");
         sellBurnRate = _burn;
         sellMarketingRate = _marketing;
@@ -228,7 +242,32 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
             
             // Update balances for tax distribution
             if (burnAmount > 0) {
-                super._update(from, address(0xdead), burnAmount);
+                // Check if burning should stop (total supply <= 99万)
+                uint256 currentSupply = totalSupply();
+                if (currentSupply > BURN_STOP_SUPPLY) {
+                    // Only burn if above threshold
+                    uint256 actualBurnAmount = burnAmount;
+                    
+                    // If this burn would push supply below threshold, adjust
+                    if (currentSupply - burnAmount < BURN_STOP_SUPPLY) {
+                        actualBurnAmount = currentSupply - BURN_STOP_SUPPLY;
+                        // Redirect excess to marketing wallet instead of burning
+                        uint256 redirectAmount = burnAmount - actualBurnAmount;
+                        if (redirectAmount > 0) {
+                            marketingAmount += redirectAmount;
+                        }
+                        emit BurningStopped(BURN_STOP_SUPPLY);
+                    }
+                    
+                    if (actualBurnAmount > 0) {
+                        super._update(from, address(0xdead), actualBurnAmount);
+                        totalBurned += actualBurnAmount;
+                        emit TokensBurned(actualBurnAmount, totalBurned);
+                    }
+                } else {
+                    // Already at minimum supply, redirect to marketing
+                    marketingAmount += burnAmount;
+                }
             }
             if (marketingAmount > 0) {
                 super._update(from, marketingWallet, marketingAmount);
@@ -280,13 +319,32 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         IBSDT(bsdtToken).transfer(msg.sender, bsdtAmount);
     }
     
-    // Admin Functions
-    function withdrawBSDT(uint256 amount) external onlyOwner {
-        IBSDT(bsdtToken).transfer(owner(), amount);
+    // Admin Functions (多签控制储备金)
+    function withdrawBSDT(uint256 amount) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        IBSDT(bsdtToken).transfer(msg.sender, amount);
     }
     
-    function withdrawHCF(uint256 amount) external onlyOwner {
-        _update(address(this), owner(), amount);
+    function withdrawHCF(uint256 amount) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        _update(address(this), msg.sender, amount);
+    }
+    
+    // 设置多签钱包
+    function setMultiSigWallet(address _multiSig) external onlyOwner {
+        require(_multiSig != address(0), "Invalid multisig address");
+        multiSigWallet = _multiSig;
+        
+        // 将储备金钱包改为多签控制
+        if (reserveWallet != _multiSig) {
+            // 转移储备金到多签
+            uint256 reserveBalance = balanceOf(reserveWallet);
+            if (reserveBalance > 0) {
+                _update(reserveWallet, _multiSig, reserveBalance);
+            }
+            reserveWallet = _multiSig;
+            isExcludedFromTax[_multiSig] = true;
+        }
     }
     
     // View Functions

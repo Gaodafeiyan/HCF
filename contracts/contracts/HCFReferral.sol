@@ -101,30 +101,42 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     // ============ 初始化配置 ============
     
     function _initializeReferralRates() private {
-        // 20级推荐费率: 20% 递减至 2%
-        for (uint256 i = 1; i <= MAX_REFERRAL_LEVELS; i++) {
-            referralRates[i] = 2000 - (i - 1) * 90; // 20%下降到2% (basis points)
+        // 20级推荐费率配置 - 按照文档要求
+        referralRates[1] = 3000;  // 30%
+        referralRates[2] = 2000;  // 20%
+        referralRates[3] = 1000;  // 10%
+        referralRates[4] = 800;   // 8%
+        referralRates[5] = 700;   // 7%
+        referralRates[6] = 600;   // 6%
+        referralRates[7] = 500;   // 5%
+        referralRates[8] = 400;   // 4%
+        referralRates[9] = 300;   // 3%
+        referralRates[10] = 200;  // 2%
+        
+        // 11-20级各0.5%
+        for (uint256 i = 11; i <= 20; i++) {
+            referralRates[i] = 50; // 0.5%
         }
     }
     
     function _initializeTeamLevelConfigs() private {
-        // V1: 6% 团队奖励, 需要3个直推, 10000 HCF团队业绩
-        teamLevelConfigs[1] = TeamLevelConfig(3, 10000 * 10**18, 600, true);
+        // V1: 2% 团队奖励, 需要3个直推, 10000 HCF团队业绩
+        teamLevelConfigs[1] = TeamLevelConfig(3, 10000 * 10**18, 200, true);
         
-        // V2: 12% 团队奖励, 需要5个直推, 50000 HCF团队业绩
-        teamLevelConfigs[2] = TeamLevelConfig(5, 50000 * 10**18, 1200, true);
+        // V2: 5% 团队奖励, 需要5个直推, 50000 HCF团队业绩
+        teamLevelConfigs[2] = TeamLevelConfig(5, 50000 * 10**18, 500, true);
         
-        // V3: 18% 团队奖励, 需要8个直推, 100000 HCF团队业绩
-        teamLevelConfigs[3] = TeamLevelConfig(8, 100000 * 10**18, 1800, true);
+        // V3: 8% 团队奖励, 需要10个直推, 200000 HCF团队业绩
+        teamLevelConfigs[3] = TeamLevelConfig(10, 200000 * 10**18, 800, true);
         
-        // V4: 24% 团队奖励, 需要12个直推, 500000 HCF团队业绩
-        teamLevelConfigs[4] = TeamLevelConfig(12, 500000 * 10**18, 2400, true);
+        // V4: 12% 团队奖励, 需要20个直推, 500000 HCF团队业绩
+        teamLevelConfigs[4] = TeamLevelConfig(20, 500000 * 10**18, 1200, true);
         
-        // V5: 30% 团队奖励, 需要20个直推, 1000000 HCF团队业绩
-        teamLevelConfigs[5] = TeamLevelConfig(20, 1000000 * 10**18, 3000, true);
+        // V5: 15% 团队奖励, 需要50个直推, 2000000 HCF团队业绩
+        teamLevelConfigs[5] = TeamLevelConfig(50, 2000000 * 10**18, 1500, true);
         
-        // V6: 36% 团队奖励, 需要30个直推, 5000000 HCF团队业绩
-        teamLevelConfigs[6] = TeamLevelConfig(30, 5000000 * 10**18, 3600, true);
+        // V6: 20% 团队奖励, 需要100个直推, 10000000 HCF团队业绩
+        teamLevelConfigs[6] = TeamLevelConfig(100, 10000000 * 10**18, 2000, true);
     }
     
     // ============ 推荐绑定功能 ============

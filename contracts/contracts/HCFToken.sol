@@ -14,8 +14,9 @@ interface IBSDT {
 contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     // Token Economics
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 * 10**18; // 10亿
-    uint256 public constant INITIAL_RELEASE = 10_000_000 * 10**18;  // 首发1000万
-    uint256 public constant FINAL_SUPPLY = 990_000 * 10**18;       // 最终99万
+    uint256 public constant INITIAL_RELEASE = 10_000_000 * 10**18;  // 首发1% = 1000万
+    uint256 public constant RESERVE_FUND = 9_000_000 * 10**18;      // 储备金0.9% = 900万
+    uint256 public constant MINING_REWARDS = 981_000_000 * 10**18;  // 挖矿奖励99% = 9.81亿 (990,000,000 - 9,000,000)
     uint256 public constant MIN_BALANCE = 1e14; // 0.0001 HCF 不可转账余额
     
     // Tax Rates (basis points: 100 = 1%)
@@ -45,10 +46,12 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
     address public marketingWallet;
     address public lpWallet;
     address public nodeWallet;
+    address public reserveWallet; // 储备金钱包
     
-    // LP Mining (9.9亿奖励LP提供者)
-    uint256 public miningPool = TOTAL_SUPPLY - INITIAL_RELEASE; // 9.9亿LP挖矿奖励
+    // LP Mining (98.1% = 9.81亿奖励LP提供者)
+    uint256 public miningPool = MINING_REWARDS; // 9.81亿LP挖矿奖励
     uint256 public miningReleased;
+    uint256 public reserveFund = RESERVE_FUND; // 900万储备金
     address public lpMiningContract; // LP挖矿合约地址
     
     // Trading
@@ -66,15 +69,20 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         address _bsdtToken,
         address _marketingWallet,
         address _lpWallet,
-        address _nodeWallet
+        address _nodeWallet,
+        address _reserveWallet
     ) ERC20("HCF Token", "HCF") Ownable(msg.sender) {
         bsdtToken = _bsdtToken;
         marketingWallet = _marketingWallet;
         lpWallet = _lpWallet;
         nodeWallet = _nodeWallet;
+        reserveWallet = _reserveWallet;
         
-        // Mint initial supply to owner
+        // Mint initial supply to owner (1% = 1000万)
         _mint(owner(), INITIAL_RELEASE);
+        
+        // Mint reserve fund to reserve wallet (0.9% = 900万)
+        _mint(reserveWallet, RESERVE_FUND);
         
         // Exclude system addresses from tax
         isExcludedFromTax[owner()] = true;
@@ -82,6 +90,7 @@ contract HCFToken is ERC20, Ownable, ReentrancyGuard {
         isExcludedFromTax[marketingWallet] = true;
         isExcludedFromTax[lpWallet] = true;
         isExcludedFromTax[nodeWallet] = true;
+        isExcludedFromTax[reserveWallet] = true;
     }
     
     // Tax Management

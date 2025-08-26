@@ -72,8 +72,8 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     IUSDC public usdcToken;
     IHCFReferral public referralContract;
     
-    // Level configurations (真实需求的5等级)
-    StakingLevel[5] public stakingLevels;
+    // Level configurations (真实需求的4等级，①-④)
+    StakingLevel[4] public stakingLevels;
     mapping(address => UserInfo) public userInfo;
     mapping(address => bool) public isLPToken;
     
@@ -126,69 +126,59 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         bsdtToken = IBSDT(_bsdtToken);
         usdcToken = IUSDC(_usdcToken);
         
-        // Initialize 5等级质押系统 - 完全按照文档要求
+        // Initialize 4等级质押系统 - 完全按照文档要求
         // LP配比1:5增益机制
         
-        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数10
+        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础)
         stakingLevels[0] = StakingLevel({
             minAmount: 10 * 10**18,
-            baseRate: 40,
-            lpRate: 80,
+            baseRate: 40,  // 0.4%
+            lpRate: 80,    // 0.8%
             compoundUnit: 10 * 10**18,
-            lpCoefficient: 500,
+            lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数20
+        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础)
         stakingLevels[1] = StakingLevel({
             minAmount: 100 * 10**18,
-            baseRate: 40,
-            lpRate: 80,
-            compoundUnit: 20 * 10**18,
-            lpCoefficient: 500,
+            baseRate: 40,  // 0.4%
+            lpRate: 80,    // 0.8%
+            compoundUnit: 100 * 10**18,
+            lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础), 复投倍数200
+        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础)
         stakingLevels[2] = StakingLevel({
             minAmount: 1000 * 10**18,
-            baseRate: 50,
-            lpRate: 100,
-            compoundUnit: 200 * 10**18,
-            lpCoefficient: 500,
+            baseRate: 50,  // 0.5%
+            lpRate: 100,   // 1.0%
+            compoundUnit: 1000 * 10**18,
+            lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础), 复投倍数2000
+        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础)
         stakingLevels[3] = StakingLevel({
             minAmount: 10000 * 10**18,
-            baseRate: 60,
-            lpRate: 120,
-            compoundUnit: 2000 * 10**18,
-            lpCoefficient: 500,
+            baseRate: 60,  // 0.6%
+            lpRate: 120,   // 1.2%
+            compoundUnit: 10000 * 10**18,
+            lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ⑤级: 100000 HCF, 0.8% → LP后1.6% (2倍基础), 复投倍数20000
-        stakingLevels[4] = StakingLevel({
-            minAmount: 100000 * 10**18,
-            baseRate: 80,
-            lpRate: 160,
-            compoundUnit: 20000 * 10**18,
-            lpCoefficient: 500,
-            totalStaked: 0,
-            active: true
-        });
-        
-        // Initialize dual cycle config
-        cycleConfig = CycleInfo(100, 500, 10000 * 10**18); // 1x base, 5x after cycle, 10k threshold
+        // Initialize dual cycle config (100倍显示，不是100倍收益)
+        // 1000+ HCF激活双循环，显示为100倍复投
+        cycleConfig = CycleInfo(100, 100, 1000 * 10**18); // 100倍显示
         
         // Initialize level rate multipliers to 100% (10000 basis points)
-        for (uint256 i = 0; i < 5; i++) {
+        for (uint256 i = 0; i < 4; i++) {
             levelRateMultipliers[i] = 10000;
         }
     }

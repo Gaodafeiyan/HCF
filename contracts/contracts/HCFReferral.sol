@@ -51,9 +51,9 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     
     struct TeamLevelConfig {
         uint256 directRequirement;    // 直推要求
-        uint256 teamVolumeRequirement; // 团队业绩要求
+        uint256 teamVolumeRequirement; // 小区业绩要求
         uint256 rewardRate;           // 团队奖励率 (basis points)
-        bool unlockRequired;          // 是否需要解锁
+        bool unlockRequired;          // 是否需要下级V级解锁
     }
     
     // ============ 映射存储 ============
@@ -75,6 +75,16 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     
     // 激活要求
     uint256 public activationStakeAmount = 100 * 10**18; // 100 HCF激活
+    
+    // 封顶机制 - 日产出封顶
+    uint256 public dailyYieldCap = 10000; // 100% 日产出封顶（相对于质押量）
+    bool public yieldCapEnabled = true;    // 是否启用封顶
+    
+    // 特定烧伤率（可投票调整）
+    uint256 public volatilityBurnRate = 500;  // 5% 波动烧伤
+    uint256 public tradingBurnRate = 100;     // 1% 交易烧伤
+    uint256 public timedBurnRate = 100;       // 1% 定时烧伤
+    address public multiSigWallet;            // 多签钱包（用于投票调整）
     
     // ============ 事件 ============
     
@@ -120,23 +130,23 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     }
     
     function _initializeTeamLevelConfigs() private {
-        // V1: 2% 团队奖励, 需要3个直推, 10000 HCF团队业绩
-        teamLevelConfigs[1] = TeamLevelConfig(3, 10000 * 10**18, 200, true);
+        // V1: 6% 团队奖励, 需要3个直推, 2000 HCF小区业绩, 需要下级V1
+        teamLevelConfigs[1] = TeamLevelConfig(3, 2000 * 10**18, 600, true);
         
-        // V2: 5% 团队奖励, 需要5个直推, 50000 HCF团队业绩
-        teamLevelConfigs[2] = TeamLevelConfig(5, 50000 * 10**18, 500, true);
+        // V2: 12% 团队奖励, 需要5个直推, 20000 HCF小区业绩, 需要下级V2
+        teamLevelConfigs[2] = TeamLevelConfig(5, 20000 * 10**18, 1200, true);
         
-        // V3: 8% 团队奖励, 需要10个直推, 200000 HCF团队业绩
-        teamLevelConfigs[3] = TeamLevelConfig(10, 200000 * 10**18, 800, true);
+        // V3: 18% 团队奖励, 需要10个直推, 200000 HCF小区业绩, 需要下级V3
+        teamLevelConfigs[3] = TeamLevelConfig(10, 200000 * 10**18, 1800, true);
         
-        // V4: 12% 团队奖励, 需要20个直推, 500000 HCF团队业绩
-        teamLevelConfigs[4] = TeamLevelConfig(20, 500000 * 10**18, 1200, true);
+        // V4: 24% 团队奖励, 需要20个直推, 2000000 HCF小区业绩, 需要下级V4
+        teamLevelConfigs[4] = TeamLevelConfig(20, 2000000 * 10**18, 2400, true);
         
-        // V5: 15% 团队奖励, 需要50个直推, 2000000 HCF团队业绩
-        teamLevelConfigs[5] = TeamLevelConfig(50, 2000000 * 10**18, 1500, true);
+        // V5: 30% 团队奖励, 需要50个直推, 8000000 HCF小区业绩, 需要下级V5
+        teamLevelConfigs[5] = TeamLevelConfig(50, 8000000 * 10**18, 3000, true);
         
-        // V6: 20% 团队奖励, 需要100个直推, 10000000 HCF团队业绩
-        teamLevelConfigs[6] = TeamLevelConfig(100, 10000000 * 10**18, 2000, true);
+        // V6: 36% 团队奖励, 需要100个直推, 20000000 HCF小区业绩, 需要下级V6
+        teamLevelConfigs[6] = TeamLevelConfig(100, 20000000 * 10**18, 3600, true);
     }
     
     // ============ 推荐绑定功能 ============
@@ -253,6 +263,15 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         require(msg.sender == address(hcfStaking), "Only staking contract can distribute");
         require(users[user].isActive, "User not activated");
         
+        // 应用日产出封顶
+        if (yieldCapEnabled) {
+            (uint256 stakedAmount, ) = hcfStaking.getUserInfo(user);
+            uint256 dailyCap = (stakedAmount * dailyYieldCap) / 10000;
+            if (rewardAmount > dailyCap) {
+                rewardAmount = dailyCap; // 封顶处理
+            }
+        }
+        
         address currentReferrer = users[user].referrer;
         
         for (uint256 level = 1; level <= MAX_REFERRAL_LEVELS && currentReferrer != address(0); level++) {
@@ -365,7 +384,7 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     function _checkAndUpgradeTeamLevel(address user) private {
         uint256 currentLevel = users[user].teamLevel;
         
-        // 计算团队业绩 (包括下级的业绩)
+        // 计算小区业绩 (包括下级的业绩)
         uint256 totalTeamVolume = _calculateTeamVolume(user);
         users[user].teamVolume = totalTeamVolume;
         
@@ -373,15 +392,44 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         for (uint256 level = currentLevel + 1; level <= MAX_TEAM_LEVEL; level++) {
             TeamLevelConfig memory config = teamLevelConfigs[level];
             
-            if (users[user].directCount >= config.directRequirement && 
-                totalTeamVolume >= config.teamVolumeRequirement) {
-                
-                users[user].teamLevel = level;
-                emit TeamLevelUpgraded(user, level);
-            } else {
-                break; // 不满足条件，停止检查更高等级
+            // 检查基本条件
+            bool meetsBasicRequirements = users[user].directCount >= config.directRequirement && 
+                                         totalTeamVolume >= config.teamVolumeRequirement;
+            
+            if (!meetsBasicRequirements) {
+                break; // 不满足基本条件
+            }
+            
+            // 检查是否需要下级V级解锁
+            if (config.unlockRequired) {
+                bool hasRequiredSubLevel = _checkSubordinateLevel(user, level);
+                if (!hasRequiredSubLevel) {
+                    break; // 没有所需的下级V级
+                }
+            }
+            
+            users[user].teamLevel = level;
+            emit TeamLevelUpgraded(user, level);
+        }
+    }
+    
+    function _checkSubordinateLevel(address user, uint256 requiredLevel) private view returns (bool) {
+        address[] memory directs = directReferrals[user];
+        uint256 subordinatesWithLevel = 0;
+        
+        // V1需要1个V1下级，V2需要2个V2下级，以此类推
+        uint256 requiredSubordinates = requiredLevel;
+        
+        for (uint256 i = 0; i < directs.length; i++) {
+            if (users[directs[i]].teamLevel >= requiredLevel) {
+                subordinatesWithLevel++;
+                if (subordinatesWithLevel >= requiredSubordinates) {
+                    return true;
+                }
             }
         }
+        
+        return false;
     }
     
     function _calculateTeamVolume(address user) private view returns (uint256) {
@@ -436,12 +484,47 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         referralRates[level] = rate;
     }
     
-    function updateBurnRates(uint256 _referralBurnRate, uint256 _teamBurnRate) external onlyOwner {
+    function updateBurnRates(uint256 _referralBurnRate, uint256 _teamBurnRate) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
         require(_referralBurnRate <= 5000, "Burn rate too high"); // 最大50%
         require(_teamBurnRate <= 5000, "Burn rate too high");
         
         referralBurnRate = _referralBurnRate;
         teamBurnRate = _teamBurnRate;
+    }
+    
+    /**
+     * @dev 投票调整特定烧伤率（需要多签）
+     */
+    function voteOnSpecialBurnRates(
+        uint256 _volatilityBurn,
+        uint256 _tradingBurn,
+        uint256 _timedBurn
+    ) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        require(_volatilityBurn <= 1000, "Volatility burn too high"); // 最大10%
+        require(_tradingBurn <= 500, "Trading burn too high");       // 最大5%
+        require(_timedBurn <= 500, "Timed burn too high");           // 最大5%
+        
+        volatilityBurnRate = _volatilityBurn;
+        tradingBurnRate = _tradingBurn;
+        timedBurnRate = _timedBurn;
+    }
+    
+    /**
+     * @dev 设置日产出封顶
+     */
+    function setDailyYieldCap(uint256 _cap, bool _enabled) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        require(_cap <= 20000, "Cap too high"); // 最大200%
+        
+        dailyYieldCap = _cap;
+        yieldCapEnabled = _enabled;
+    }
+    
+    function setMultiSigWallet(address _multiSig) external onlyOwner {
+        require(_multiSig != address(0), "Invalid multisig address");
+        multiSigWallet = _multiSig;
     }
     
     function updateActivationStakeAmount(uint256 amount) external onlyOwner {
@@ -588,6 +671,30 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     }
     
     // ============ 紧急功能 ============
+    
+    /**
+     * @dev 应用特定事件烧伤（波动/交易/定时）
+     */
+    function applyEventBurn(uint256 amount, string memory eventType) external returns (uint256) {
+        require(msg.sender == address(hcfStaking) || msg.sender == owner(), "Unauthorized");
+        
+        uint256 burnAmount = 0;
+        
+        if (keccak256(bytes(eventType)) == keccak256(bytes("volatility"))) {
+            burnAmount = (amount * volatilityBurnRate) / 10000;
+        } else if (keccak256(bytes(eventType)) == keccak256(bytes("trading"))) {
+            burnAmount = (amount * tradingBurnRate) / 10000;
+        } else if (keccak256(bytes(eventType)) == keccak256(bytes("timed"))) {
+            burnAmount = (amount * timedBurnRate) / 10000;
+        }
+        
+        if (burnAmount > 0) {
+            hcfToken.transfer(BURN_ADDRESS, burnAmount);
+            emit RewardBurned(msg.sender, burnAmount, eventType);
+        }
+        
+        return amount - burnAmount;
+    }
     
     function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
         IERC20(token).transfer(owner(), amount);

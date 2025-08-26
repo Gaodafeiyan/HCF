@@ -52,10 +52,10 @@ contract HCFRanking is Ownable, ReentrancyGuard {
     // 排名配置
     struct RankingConfig {
         uint256 top100Bonus;    // 1-100名: 20%
-        uint256 top299Bonus;    // 101-299名: 10%
-        uint256 top599Bonus;    // 300-599名: 5%
-        uint256 top999Bonus;    // 600-999名: 3%
-        uint256 top2000Bonus;   // 1000-2000名: 1%
+        uint256 top299Bonus;    // 101-299名: 15%
+        uint256 top599Bonus;    // 300-599名: 12%
+        uint256 top999Bonus;    // 600-999名: 11%
+        uint256 top2000Bonus;   // 1000-2000名: 10%
         uint256 updateInterval;  // 更新间隔（日/周/月）
         bool enabled;            // 是否启用
     }
@@ -87,6 +87,10 @@ contract HCFRanking is Ownable, ReentrancyGuard {
     uint256 public lastStakingRankUpdate;
     uint256 public lastCommunityRankUpdate;
     
+    // 周期重设功能
+    uint256 public currentCycle;  // 当前周期
+    mapping(uint256 => mapping(address => UserRankData)) public cycleUserData; // 周期数据
+    
     // ============ 事件 ============
     
     event RankingUpdated(string rankType, uint256 timestamp);
@@ -102,23 +106,24 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         stakingContract = IHCFStaking(_stakingContract);
         referralContract = IHCFReferral(_referralContract);
         
-        // 初始化排名配置
+        // 初始化排名配置 - 按照需求设置
+        // Top 100: 20%, 101-299: 15%, 300-599: 12%, 600-999: 11%, 1000-2000: 10%
         stakingRankConfig = RankingConfig({
             top100Bonus: 2000,    // 20%
-            top299Bonus: 1000,    // 10%
-            top599Bonus: 500,     // 5%
-            top999Bonus: 300,     // 3%
-            top2000Bonus: 100,    // 1%
+            top299Bonus: 1500,    // 15% 
+            top599Bonus: 1200,    // 12%
+            top999Bonus: 1100,    // 11%
+            top2000Bonus: 1000,   // 10%
             updateInterval: 1 days,
             enabled: true
         });
         
         communityRankConfig = RankingConfig({
             top100Bonus: 2000,    // 20%
-            top299Bonus: 1000,    // 10%
-            top599Bonus: 500,     // 5%
-            top999Bonus: 300,     // 3%
-            top2000Bonus: 100,    // 1%
+            top299Bonus: 1500,    // 15%
+            top599Bonus: 1200,    // 12%
+            top999Bonus: 1100,    // 11%
+            top2000Bonus: 1000,   // 10%
             updateInterval: 1 days,
             enabled: true
         });
@@ -356,6 +361,42 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         config.top2000Bonus = bonuses[4];
         config.updateInterval = interval;
         config.enabled = enabled;
+    }
+    
+    /**
+     * @dev 周期重设 - 每周/每月重置排名
+     */
+    function resetCycle() external onlyOwner {
+        currentCycle++;
+        
+        // 清空当前排名数据
+        delete stakingRankList;
+        delete communityRankList;
+        
+        // 重置更新时间
+        lastStakingRankUpdate = block.timestamp;
+        lastCommunityRankUpdate = block.timestamp;
+        
+        emit RankingUpdated("cycle_reset", block.timestamp);
+    }
+    
+    /**
+     * @dev 获取当前周期信息
+     */
+    function getCurrentCycleInfo() external view returns (
+        uint256 cycle,
+        uint256 stakingLastUpdate,
+        uint256 communityLastUpdate,
+        uint256 nextStakingUpdate,
+        uint256 nextCommunityUpdate
+    ) {
+        return (
+            currentCycle,
+            lastStakingRankUpdate,
+            lastCommunityRankUpdate,
+            lastStakingRankUpdate + stakingRankConfig.updateInterval,
+            lastCommunityRankUpdate + communityRankConfig.updateInterval
+        );
     }
     
     /**

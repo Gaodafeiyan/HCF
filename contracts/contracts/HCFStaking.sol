@@ -71,9 +71,11 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     IBSDT public bsdtToken;
     IUSDC public usdcToken;
     IHCFReferral public referralContract;
+    address public multiSigWallet;  // 多签钱包控制
+    address public bnbBridge;        // BNB桥接合约
     
-    // Level configurations (真实需求的4等级，①-④)
-    StakingLevel[4] public stakingLevels;
+    // Level configurations (真实需求的5等级，①-⑤)
+    StakingLevel[5] public stakingLevels;
     mapping(address => UserInfo) public userInfo;
     mapping(address => bool) public isLPToken;
     
@@ -103,6 +105,21 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     bool public stakingEnabled = true;
     mapping(uint256 => uint256) public levelRateMultipliers; // Backend rate adjustments
     
+    // 衰减机制参数
+    uint256 public constant DECAY_THRESHOLD = 100000000 * 10**18;  // 1亿HCF
+    uint256 public decayRate = 10;  // 每超1亿减0.1% (10 basis points)
+    
+    // 加成系统 
+    uint256 public timeBonus = 1000;      // 时长加成10%
+    uint256 public referralBonus = 500;   // 推荐加成5%
+    uint256 public communityBonus = 500;  // 社区加成5%
+    uint256 public compoundBonus = 2000;  // 复合加成20%
+    
+    // 防损补偿
+    bool public lpProtectionEnabled = true;
+    uint256 public minCompensation = 500 * 10**18;  // 最小补偿500 HCF
+    mapping(address => bool) public isNodeOperator;  // 节点运营商优先权
+    
     // 防暴跌系统参数
     uint256 public currentPriceImpact = 0; // 当日价格变化百分比
     uint256 public additionalTaxRate = 0; // 额外税率
@@ -126,48 +143,59 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         bsdtToken = IBSDT(_bsdtToken);
         usdcToken = IUSDC(_usdcToken);
         
-        // Initialize 4等级质押系统 - 完全按照文档要求
+        // Initialize 5等级质押系统 - 完全按照文档要求
         // LP配比1:5增益机制
         
-        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础)
+        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数10
         stakingLevels[0] = StakingLevel({
             minAmount: 10 * 10**18,
             baseRate: 40,  // 0.4%
             lpRate: 80,    // 0.8%
-            compoundUnit: 10 * 10**18,
+            compoundUnit: 10,  // 复投倍数10
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础)
+        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数20
         stakingLevels[1] = StakingLevel({
             minAmount: 100 * 10**18,
             baseRate: 40,  // 0.4%
             lpRate: 80,    // 0.8%
-            compoundUnit: 100 * 10**18,
+            compoundUnit: 20,  // 复投倍数20
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础)
+        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础), 复投倍数200
         stakingLevels[2] = StakingLevel({
             minAmount: 1000 * 10**18,
             baseRate: 50,  // 0.5%
             lpRate: 100,   // 1.0%
-            compoundUnit: 1000 * 10**18,
+            compoundUnit: 200,  // 复投倍数200
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础)
+        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础), 复投倍数2000
         stakingLevels[3] = StakingLevel({
             minAmount: 10000 * 10**18,
             baseRate: 60,  // 0.6%
             lpRate: 120,   // 1.2%
-            compoundUnit: 10000 * 10**18,
+            compoundUnit: 2000,  // 复投倍数2000
+            lpCoefficient: 500,  // 1:5增益
+            totalStaked: 0,
+            active: true
+        });
+        
+        // ⑤级: 100000 HCF, 0.8% → LP后1.6% (2倍基础), 复投倍数20000
+        stakingLevels[4] = StakingLevel({
+            minAmount: 100000 * 10**18,
+            baseRate: 80,  // 0.8%
+            lpRate: 160,   // 1.6%
+            compoundUnit: 20000,  // 复投倍数20000
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
@@ -178,7 +206,7 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         cycleConfig = CycleInfo(100, 100, 1000 * 10**18); // 100倍显示
         
         // Initialize level rate multipliers to 100% (10000 basis points)
-        for (uint256 i = 0; i < 4; i++) {
+        for (uint256 i = 0; i < 5; i++) {
             levelRateMultipliers[i] = 10000;
         }
     }
@@ -364,6 +392,14 @@ contract HCFStaking is ReentrancyGuard, Ownable {
             // 需要用户支付BNB作为手续费
             require(msg.value >= bnbRequired, "Insufficient BNB for penalty");
             
+            // BNB转到bridge合约
+            if (bnbBridge != address(0) && bnbRequired > 0) {
+                payable(bnbBridge).transfer(bnbRequired);
+            } else if (bnbRequired > 0) {
+                // 如果没有设置bridge，发送给owner
+                payable(owner()).transfer(bnbRequired);
+            }
+            
             // 如果支付过多，退还多余的
             if (msg.value > bnbRequired) {
                 payable(msg.sender).transfer(msg.value - bnbRequired);
@@ -482,9 +518,56 @@ contract HCFStaking is ReentrancyGuard, Ownable {
             baseReward = (baseReward * level.lpCoefficient) / 100;
         }
         
-        // 应用复投倍数 (按照等级设定)
+        // 应用复投倍数 (按照等级的compoundUnit设定)
         if (user.compoundCount > 0) {
-            baseReward = baseReward * 100; // 100倍增益
+            baseReward = (baseReward * level.compoundUnit * user.compoundCount) / 100;
+        }
+        
+        // 应用全局衰减机制 (总量>1亿时)
+        uint256 totalStaked = getTotalStakedAmount();
+        if (totalStaked > DECAY_THRESHOLD) {
+            uint256 excessAmount = totalStaked - DECAY_THRESHOLD;
+            uint256 decayPercent = (excessAmount * decayRate) / DECAY_THRESHOLD;
+            if (decayPercent > 0) {
+                baseReward = (baseReward * (10000 - decayPercent)) / 10000;
+            }
+        }
+        
+        // 应用加成系统
+        uint256 totalBonus = 0;
+        
+        // 时长加成 (质押超过30天)
+        if (block.timestamp - user.startTime > 30 days) {
+            totalBonus += timeBonus;
+        }
+        
+        // 推荐加成 (如果有推荐关系)
+        if (address(referralContract) != address(0)) {
+            try referralContract.getUserData(msg.sender) returns (
+                address referrer, 
+                uint256, uint256, uint256, uint256, uint256, uint256, 
+                bool isActive, 
+                uint256, uint256
+            ) {
+                if (referrer != address(0) && isActive) {
+                    totalBonus += referralBonus;
+                }
+            } catch {}
+        }
+        
+        // 社区加成 (根据社区贡献,这里简化处理)
+        if (user.totalClaimed > 1000 * 10**18) {
+            totalBonus += communityBonus;
+        }
+        
+        // 复合加成 (多次复投)
+        if (user.compoundCount >= 2) {
+            totalBonus += compoundBonus;
+        }
+        
+        // 应用总加成
+        if (totalBonus > 0) {
+            baseReward = (baseReward * (10000 + totalBonus)) / 10000;
         }
         
         return baseReward;
@@ -493,11 +576,19 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     function _checkCycleCompletion(address _user, uint256 _rewardAmount) internal {
         UserInfo storage user = userInfo[_user];
         
-        // 检查复投机制 (按照等级复投倍数)
-        StakingLevel storage level = stakingLevels[user.levelId];
-        if (user.totalClaimed >= level.compoundUnit && user.compoundCount == 0) {
-            user.compoundCount = 1;
-            emit CycleCompleted(_user, user.compoundCount);
+        // 双循环机制: 1000+ HCF激活，以100倍数复投
+        if (user.amount >= 1000 * 10**18) {
+            // 检查是否达到100的倍数进行复投
+            uint256 compoundThreshold = 100 * 10**18 * (user.compoundCount + 1);
+            if (user.totalClaimed >= compoundThreshold) {
+                user.compoundCount++;
+                emit CycleCompleted(_user, user.compoundCount);
+                
+                // 自动复投到底池（如果是LP模式）
+                if (user.isLP) {
+                    _autoCompoundLP(_user);
+                }
+            }
         }
     }
     
@@ -553,8 +644,9 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         require(usdcToken.transfer(msg.sender, usdcAmount), "USDC transfer failed");
     }
     
-    // Admin Functions
-    function updateLevelRates(uint256 _levelId, uint256 _baseRate, uint256 _lpRate) external onlyOwner {
+    // Admin Functions (多签控制)
+    function updateLevelRates(uint256 _levelId, uint256 _baseRate, uint256 _lpRate) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
         require(_levelId < 5, "Invalid level ID");
         require(_baseRate > 0, "Base rate must be positive");
         require(_lpRate > 0, "LP rate must be positive");
@@ -562,6 +654,32 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         stakingLevels[_levelId].baseRate = _baseRate;
         stakingLevels[_levelId].lpRate = _lpRate;
         emit LevelRateUpdated(_levelId, _baseRate, _lpRate);
+    }
+    
+    // 设置衰减阈值 (多签控制)
+    function setDecayThreshold(uint256 _decayRate) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        require(_decayRate <= 100, "Decay rate too high"); // 最多1%
+        decayRate = _decayRate;
+    }
+    
+    // 设置加成参数 (多签控制)
+    function setBonusRates(
+        uint256 _timeBonus,
+        uint256 _referralBonus, 
+        uint256 _communityBonus,
+        uint256 _compoundBonus
+    ) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        require(_timeBonus <= 2000, "Time bonus too high");      // 最多20%
+        require(_referralBonus <= 1000, "Referral bonus too high"); // 最多10%
+        require(_communityBonus <= 1000, "Community bonus too high"); // 最多10%
+        require(_compoundBonus <= 3000, "Compound bonus too high");  // 最多30%
+        
+        timeBonus = _timeBonus;
+        referralBonus = _referralBonus;
+        communityBonus = _communityBonus;
+        compoundBonus = _compoundBonus;
     }
     
     function setLevelActive(uint256 _levelId, bool _active) external onlyOwner {
@@ -589,6 +707,50 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     function setEquityLPCollector(address _collector) external onlyOwner {
         equityLPCollector = _collector;
+    }
+    
+    function setMultiSigWallet(address _multiSig) external onlyOwner {
+        require(_multiSig != address(0), "Invalid multisig address");
+        multiSigWallet = _multiSig;
+    }
+    
+    function setBNBBridge(address _bridge) external onlyOwner {
+        require(_bridge != address(0), "Invalid bridge address");
+        bnbBridge = _bridge;
+    }
+    
+    // 设置节点运营商（优先补偿权）
+    function setNodeOperator(address _operator, bool _status) external onlyOwner {
+        isNodeOperator[_operator] = _status;
+    }
+    
+    // 防损补偿机制
+    function enableLPProtection(bool _enabled) external onlyOwner {
+        lpProtectionEnabled = _enabled;
+    }
+    
+    // LP减少时的补偿函数
+    function compensateLPLoss(address[] calldata _users, uint256[] calldata _amounts) external {
+        require(msg.sender == multiSigWallet || msg.sender == owner(), "Only multisig or owner");
+        require(lpProtectionEnabled, "LP protection disabled");
+        require(_users.length == _amounts.length, "Length mismatch");
+        
+        for (uint256 i = 0; i < _users.length; i++) {
+            address user = _users[i];
+            uint256 amount = _amounts[i];
+            
+            // 最小补偿500 HCF
+            require(amount >= minCompensation, "Below min compensation");
+            
+            // 优先补偿节点运营商
+            if (isNodeOperator[user]) {
+                // 节点运营商获得额外10%补偿
+                amount = (amount * 110) / 100;
+            }
+            
+            // 从挖矿池释放补偿
+            hcfToken.releaseMiningRewards(user, amount);
+        }
     }
     
     // Emergency functions
@@ -662,6 +824,12 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     }
     
     function getTotalStaked() external view returns (uint256 total) {
+        for (uint256 i = 0; i < 5; i++) {
+            total += stakingLevels[i].totalStaked;
+        }
+    }
+    
+    function getTotalStakedAmount() internal view returns (uint256 total) {
         for (uint256 i = 0; i < 5; i++) {
             total += stakingLevels[i].totalStaked;
         }

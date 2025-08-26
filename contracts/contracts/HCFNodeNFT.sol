@@ -55,10 +55,33 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     
     // 激活要求
     uint256 public activationHCFAmount = 1000 * 10**18; // 1000 HCF
-    uint256 public activationLPAmount = 1000 * 10**18; // 1000 HCF/BSDT LP
+    uint256 public activationLPHCFAmount = 1000 * 10**18; // 1000 HCF for LP
+    uint256 public activationLPBSDTAmount = 1000 * 10**18; // 1000 BSDT for LP
+    address public lpCollectionAddress; // LP归集地址
     
     // 动态算力系统
-    uint256 public maxHCFInLP = 100000 * 10**18; // 最大LP中的HCF数量 (用于算力计算)
+    uint256 public constant COMPUTING_POWER_BASE = 1000 * 10**18; // 算力基准: 1000 HCF
+    uint256 public constant MIN_COMPUTING_THRESHOLD = 1000 * 10**18; // 最小1000 HCF才能增产
+    uint256 public constant MIN_ONLINE_RATE = 9000; // 最小在线率90%才能分红
+    
+    // 节点等级定义
+    enum NodeLevel {
+        Light,      // 轻量级: 1万 HCF
+        Standard,   // 标准级: 5万 HCF
+        Advanced,   // 高级: 10万 HCF
+        Premium,    // 优质: 20万 HCF
+        Super       // 超级: 50万 HCF
+    }
+    
+    // 节点等级配置
+    struct LevelConfig {
+        uint256 requiredHCF;     // 所需HCF数量
+        uint256 stakingBonus;    // 质押收益加成 (basis points)
+        uint256 votingWeight;    // 投票权重
+        uint256 rankingPoints;   // 排名加分
+    }
+    
+    mapping(NodeLevel => LevelConfig) public levelConfigs;
     
     // 节点信息
     struct NodeInfo {
@@ -68,6 +91,10 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         uint256 activationTime;
         bool isActive;
         uint256 computingPower;        // 当前算力百分比 (basis points: 10000 = 100%)
+        uint256 onlineRate;            // 在线率 (basis points: 10000 = 100%)
+        NodeLevel level;               // 节点等级
+        uint256 hcfBalance;            // 持有的HCF数量
+        uint256 lastUpdateTime;        // 最后更新时间
         uint256 totalSlippageRewards;
         uint256 totalWithdrawalFeeRewards;
         uint256 totalStakingRewards;
@@ -107,6 +134,42 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         hcfToken = IHCFToken(_hcfToken);
         bsdtToken = IBSDT(_bsdtToken);
         bsdtExchange = IHCFBSDTExchange(_bsdtExchange);
+        
+        // 初始化节点等级配置
+        levelConfigs[NodeLevel.Light] = LevelConfig({
+            requiredHCF: 10000 * 10**18,    // 1万 HCF
+            stakingBonus: 400,               // +4% 质押收益
+            votingWeight: 1,                 // 1票权重
+            rankingPoints: 100               // +100排名分
+        });
+        
+        levelConfigs[NodeLevel.Standard] = LevelConfig({
+            requiredHCF: 50000 * 10**18,    // 5万 HCF
+            stakingBonus: 800,               // +8% 质押收益
+            votingWeight: 2,                 // 2票权重
+            rankingPoints: 200               // +200排名分
+        });
+        
+        levelConfigs[NodeLevel.Advanced] = LevelConfig({
+            requiredHCF: 100000 * 10**18,   // 10万 HCF
+            stakingBonus: 1200,              // +12% 质押收益
+            votingWeight: 3,                 // 3票权重
+            rankingPoints: 300               // +300排名分
+        });
+        
+        levelConfigs[NodeLevel.Premium] = LevelConfig({
+            requiredHCF: 200000 * 10**18,   // 20万 HCF
+            stakingBonus: 1600,              // +16% 质押收益
+            votingWeight: 4,                 // 4票权重
+            rankingPoints: 400               // +400排名分
+        });
+        
+        levelConfigs[NodeLevel.Super] = LevelConfig({
+            requiredHCF: 500000 * 10**18,   // 50万 HCF
+            stakingBonus: 2000,              // +20% 质押收益
+            votingWeight: 5,                 // 5票权重
+            rankingPoints: 500               // +500排名分
+        });
     }
     
     // ============ 核心功能 ============
@@ -139,6 +202,10 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
             activationTime: 0,
             isActive: false,
             computingPower: 0, // 初始算力为0，激活后根据LP计算
+            onlineRate: 10000,  // 初始100%在线
+            level: NodeLevel.Light, // 默认轻量级
+            hcfBalance: 0,
+            lastUpdateTime: block.timestamp,
             totalSlippageRewards: 0,
             totalWithdrawalFeeRewards: 0,
             totalStakingRewards: 0,
@@ -152,17 +219,21 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev 激活节点 (1000 HCF + 1000 HCF/BSDT LP)
+     * @dev 激活节点 (1000 HCF + 1000 HCF/BSDT LP归集)
      */
     function activateNode() external nonReentrant {
         uint256 nodeId = ownerToNodeId[msg.sender];
         require(nodeId > 0, "No node owned");
         require(!nodes[nodeId].isActive, "Node already active");
+        require(lpCollectionAddress != address(0), "LP collection address not set");
         
         // 转移激活资金
+        // 1. 1000 HCF到合约
         require(hcfToken.transferFrom(msg.sender, address(this), activationHCFAmount), "HCF activation failed");
-        require(hcfToken.transferFrom(msg.sender, address(this), activationLPAmount), "HCF LP failed");
-        require(bsdtToken.transferFrom(msg.sender, address(this), activationLPAmount), "BSDT LP failed");
+        
+        // 2. 1000 HCF + 1000 BSDT到LP归集地址
+        require(hcfToken.transferFrom(msg.sender, lpCollectionAddress, activationLPHCFAmount), "HCF LP failed");
+        require(bsdtToken.transferFrom(msg.sender, lpCollectionAddress, activationLPBSDTAmount), "BSDT LP failed");
         
         // 激活节点
         nodes[nodeId].isActive = true;
@@ -177,6 +248,9 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         uint256 initialComputingPower = calculateDynamicComputingPower(msg.sender);
         nodes[nodeId].computingPower = initialComputingPower;
         
+        // 更新节点等级
+        _updateNodeLevel(nodeId);
+        
         emit NodeActivated(msg.sender, nodeId);
         if (initialComputingPower > 0) {
             emit ComputingPowerUpdated(nodeId, 0, initialComputingPower);
@@ -186,7 +260,7 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     // ============ 动态算力系统 ============
     
     /**
-     * @dev 计算用户的动态算力: LP HCF/maxHCF × 100%
+     * @dev 计算用户的动态算力: LP HCF/1000 × 100%
      * @param _user 用户地址
      * @return computingPower 算力百分比 (basis points: 10000 = 100%)
      */
@@ -202,11 +276,18 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         // 在BSDT/HCF LP中，HCF的数量等于BSDT的数量 (因为1:1兑换)
         uint256 hcfInLP = bsdtShare; // BSDT等价于HCF
         
-        // 算力 = (LP中HCF数量 / 最大HCF数量) × 100%
-        if (hcfInLP >= maxHCFInLP) {
-            computingPower = 10000; // 100%
-        } else {
-            computingPower = (hcfInLP * 10000) / maxHCFInLP;
+        // <1000 HCF不增产
+        if (hcfInLP < MIN_COMPUTING_THRESHOLD) {
+            return 0;
+        }
+        
+        // 算力 = (LP中HCF数量 / 1000) × 100%
+        // 以1000 HCF为基准，999 HCF = 99.9%算力
+        computingPower = (hcfInLP * 10000) / COMPUTING_POWER_BASE;
+        
+        // 最大100%算力
+        if (computingPower > 10000) {
+            computingPower = 10000;
         }
         
         return computingPower;
@@ -258,18 +339,75 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev 设置最大HCF数量 (用于算力计算)
+     * @dev 更新节点等级 (根据持仓HCF数量)
      */
-    function setMaxHCFInLP(uint256 _maxHCF) external onlyOwner {
-        require(_maxHCF > 0, "Max HCF must be positive");
+    function _updateNodeLevel(uint256 _nodeId) internal {
+        NodeInfo storage node = nodes[_nodeId];
+        uint256 hcfBalance = hcfToken.balanceOf(node.owner);
+        node.hcfBalance = hcfBalance;
         
-        uint256 oldMaxHCF = maxHCFInLP;
-        maxHCFInLP = _maxHCF;
-        
-        emit MaxHCFUpdated(oldMaxHCF, _maxHCF);
-        
-        // 更新所有节点算力
-        _updateAllNodesComputingPower();
+        // 根据持仓量确定等级
+        if (hcfBalance >= levelConfigs[NodeLevel.Super].requiredHCF) {
+            node.level = NodeLevel.Super;
+        } else if (hcfBalance >= levelConfigs[NodeLevel.Premium].requiredHCF) {
+            node.level = NodeLevel.Premium;
+        } else if (hcfBalance >= levelConfigs[NodeLevel.Advanced].requiredHCF) {
+            node.level = NodeLevel.Advanced;
+        } else if (hcfBalance >= levelConfigs[NodeLevel.Standard].requiredHCF) {
+            node.level = NodeLevel.Standard;
+        } else {
+            node.level = NodeLevel.Light;
+        }
+    }
+    
+    /**
+     * @dev 获取节点的质押收益加成
+     */
+    function getNodeStakingBonus(uint256 _nodeId) external view returns (uint256) {
+        require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
+        NodeInfo memory node = nodes[_nodeId];
+        return levelConfigs[node.level].stakingBonus;
+    }
+    
+    /**
+     * @dev 获取节点的投票权重
+     */
+    function getNodeVotingWeight(uint256 _nodeId) external view returns (uint256) {
+        require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
+        NodeInfo memory node = nodes[_nodeId];
+        if (!node.isActive) return 0;
+        return levelConfigs[node.level].votingWeight;
+    }
+    
+    /**
+     * @dev 获取节点的排名加分
+     */
+    function getNodeRankingPoints(uint256 _nodeId) external view returns (uint256) {
+        require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
+        NodeInfo memory node = nodes[_nodeId];
+        if (!node.isActive) return 0;
+        return levelConfigs[node.level].rankingPoints;
+    }
+    
+    /**
+     * @dev 更新节点在线率 (外部监控调用)
+     */
+    function updateNodeOnlineRate(uint256 _nodeId, uint256 _onlineRate) external onlyOwner {
+        require(_nodeId > 0 && _nodeId <= currentNodeId, "Invalid node ID");
+        require(_onlineRate <= 10000, "Invalid online rate");
+        nodes[_nodeId].onlineRate = _onlineRate;
+    }
+    
+    /**
+     * @dev 批量更新节点在线率
+     */
+    function batchUpdateOnlineRates(uint256[] calldata _nodeIds, uint256[] calldata _onlineRates) external onlyOwner {
+        require(_nodeIds.length == _onlineRates.length, "Length mismatch");
+        for (uint256 i = 0; i < _nodeIds.length; i++) {
+            require(_nodeIds[i] > 0 && _nodeIds[i] <= currentNodeId, "Invalid node ID");
+            require(_onlineRates[i] <= 10000, "Invalid online rate");
+            nodes[_nodeIds[i]].onlineRate = _onlineRates[i];
+        }
     }
     
     /**
@@ -340,13 +478,15 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     event ComputingPowerRestored(uint256 indexed nodeId, uint256 oldPower, uint256 newPower, uint256 compensationAmount);
     
     /**
-     * @dev 获取节点的详细信息包括算力
+     * @dev 获取节点的详细信息包括算力和等级
      */
     function getNodeInfo(uint256 _nodeId) external view returns (
         uint256 nodeId,
         address owner,
         bool isActive,
         uint256 computingPower,
+        uint256 onlineRate,
+        NodeLevel level,
         uint256 activationTime,
         uint256 totalRewards
     ) {
@@ -363,6 +503,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
             node.owner,
             node.isActive,
             node.computingPower,
+            node.onlineRate,
+            node.level,
             node.activationTime,
             calculatedRewards
         );
@@ -446,7 +588,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         if (totalActiveWeight == 0) return;
         
         for (uint256 i = 1; i <= currentNodeId; i++) {
-            if (nodes[i].isActive) {
+            if (nodes[i].isActive && nodes[i].onlineRate >= MIN_ONLINE_RATE) {
+                // 只有在线率>=90%的节点才能分红
                 uint256 nodeReward = (_totalAmount * nodeWeight[i]) / totalActiveWeight;
                 
                 if (_rewardType == 1) {
@@ -597,10 +740,42 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
      */
     function updateActivationRequirements(
         uint256 _hcfAmount,
-        uint256 _lpAmount
+        uint256 _lpHCFAmount,
+        uint256 _lpBSDTAmount
     ) external onlyOwner {
         activationHCFAmount = _hcfAmount;
-        activationLPAmount = _lpAmount;
+        activationLPHCFAmount = _lpHCFAmount;
+        activationLPBSDTAmount = _lpBSDTAmount;
+    }
+    
+    /**
+     * @dev 设置LP归集地址
+     */
+    function setLPCollectionAddress(address _address) external onlyOwner {
+        require(_address != address(0), "Invalid address");
+        lpCollectionAddress = _address;
+    }
+    
+    /**
+     * @dev 获取所有活跃节点的治理投票权重
+     */
+    function getTotalVotingWeight() external view returns (uint256 totalWeight) {
+        for (uint256 i = 1; i <= currentNodeId; i++) {
+            if (nodes[i].isActive) {
+                totalWeight += levelConfigs[nodes[i].level].votingWeight;
+            }
+        }
+    }
+    
+    /**
+     * @dev 获取所有活跃节点的总排名加分
+     */
+    function getTotalRankingPoints() external view returns (uint256 totalPoints) {
+        for (uint256 i = 1; i <= currentNodeId; i++) {
+            if (nodes[i].isActive && nodes[i].onlineRate >= MIN_ONLINE_RATE) {
+                totalPoints += levelConfigs[nodes[i].level].rankingPoints;
+            }
+        }
     }
     
     /**

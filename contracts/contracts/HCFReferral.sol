@@ -120,17 +120,23 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         // 20级推荐费率配置 - 按照文档要求
         referralRates[1] = 3000;  // 30%
         referralRates[2] = 2000;  // 20%
-        referralRates[3] = 1000;  // 10%
-        referralRates[4] = 800;   // 8%
-        referralRates[5] = 700;   // 7%
-        referralRates[6] = 600;   // 6%
-        referralRates[7] = 500;   // 5%
-        referralRates[8] = 400;   // 4%
-        referralRates[9] = 300;   // 3%
-        referralRates[10] = 200;  // 2%
+        referralRates[3] = 1500;  // 15%
+        referralRates[4] = 1000;  // 10%
+        referralRates[5] = 800;   // 8%
+        referralRates[6] = 500;   // 5%
         
-        // 11-20级各0.5%
-        for (uint256 i = 11; i <= 20; i++) {
+        // 7-10级各3%
+        for (uint256 i = 7; i <= 10; i++) {
+            referralRates[i] = 300; // 3%
+        }
+        
+        // 11-15级各1%
+        for (uint256 i = 11; i <= 15; i++) {
+            referralRates[i] = 100; // 1%
+        }
+        
+        // 16-20级各0.5%
+        for (uint256 i = 16; i <= 20; i++) {
             referralRates[i] = 50; // 0.5%
         }
     }

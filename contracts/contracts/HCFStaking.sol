@@ -151,56 +151,56 @@ contract HCFStaking is ReentrancyGuard, Ownable {
         // Initialize 5等级质押系统 - 完全按照文档要求
         // LP配比1:5增益机制
         
-        // ①级: 10 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数10
+        // ①级: 100 HCF, 月化8% (日化0.267%), LP后2倍收益, 复投系数1.0
         stakingLevels[0] = StakingLevel({
-            minAmount: 10 * 10**18,
-            baseRate: 40,  // 0.4%
-            lpRate: 80,    // 0.8%
-            compoundUnit: 10,  // 复投倍数10
-            lpCoefficient: 500,  // 1:5增益
-            totalStaked: 0,
-            active: true
-        });
-        
-        // ②级: 100 HCF, 0.4% → LP后0.8% (2倍基础), 复投倍数20
-        stakingLevels[1] = StakingLevel({
             minAmount: 100 * 10**18,
-            baseRate: 40,  // 0.4%
-            lpRate: 80,    // 0.8%
-            compoundUnit: 20,  // 复投倍数20
+            baseRate: 27,  // 0.267% 日化 (月化8%)
+            lpRate: 54,    // 0.534% LP日化 (2倍)
+            compoundUnit: 100,  // 复投系数1.0 (显示为100倍)
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ③级: 1000 HCF, 0.5% → LP后1% (2倍基础), 复投倍数200
+        // ②级: 500 HCF, 月化10% (日化0.333%), LP后2倍收益, 复投系数1.1
+        stakingLevels[1] = StakingLevel({
+            minAmount: 500 * 10**18,
+            baseRate: 33,  // 0.333% 日化 (月化10%)
+            lpRate: 66,    // 0.666% LP日化 (2倍)
+            compoundUnit: 110,  // 复投系数1.1 (显示为110倍)
+            lpCoefficient: 500,  // 1:5增益
+            totalStaked: 0,
+            active: true
+        });
+        
+        // ③级: 1000 HCF, 月化12% (日化0.4%), LP后2倍收益, 复投系数1.2
         stakingLevels[2] = StakingLevel({
             minAmount: 1000 * 10**18,
-            baseRate: 50,  // 0.5%
-            lpRate: 100,   // 1.0%
-            compoundUnit: 200,  // 复投倍数200
+            baseRate: 40,  // 0.4% 日化 (月化12%)
+            lpRate: 80,    // 0.8% LP日化 (2倍)
+            compoundUnit: 120,  // 复投系数1.2 (显示为120倍)
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ④级: 10000 HCF, 0.6% → LP后1.2% (2倍基础), 复投倍数2000
+        // ④级: 10000 HCF, 月化15% (日化0.5%), LP后2倍收益, 复投系数1.5
         stakingLevels[3] = StakingLevel({
             minAmount: 10000 * 10**18,
-            baseRate: 60,  // 0.6%
-            lpRate: 120,   // 1.2%
-            compoundUnit: 2000,  // 复投倍数2000
+            baseRate: 50,  // 0.5% 日化 (月化15%)
+            lpRate: 100,   // 1.0% LP日化 (2倍)
+            compoundUnit: 150,  // 复投系数1.5 (显示为150倍)
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true
         });
         
-        // ⑤级: 100000 HCF, 0.8% → LP后1.6% (2倍基础), 复投倍数20000
+        // ⑤级: 100000 HCF, 月化18% (日化0.6%), LP后2倍收益, 复投系数2.0
         stakingLevels[4] = StakingLevel({
             minAmount: 100000 * 10**18,
-            baseRate: 80,  // 0.8%
-            lpRate: 160,   // 1.6%
-            compoundUnit: 20000,  // 复投倍数20000
+            baseRate: 60,  // 0.6% 日化 (月化18%)
+            lpRate: 120,   // 1.2% LP日化 (2倍)
+            compoundUnit: 200,  // 复投系数2.0 (显示为200倍)
             lpCoefficient: 500,  // 1:5增益
             totalStaked: 0,
             active: true

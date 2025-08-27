@@ -117,6 +117,11 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     // 防损补偿
     bool public lpProtectionEnabled = true;
+    
+    // 静态收益比例机制
+    uint256 public constant BASE_STATIC_RATIO = 5000;  // 基础静态比50%
+    uint256 public constant LP_THRESHOLD = 1000 * 10**18;  // LP阈值1000 HCF
+    uint256 public constant MAX_STATIC_RATIO = 10000;  // 最大静态比100%
     uint256 public minCompensation = 500 * 10**18;  // 最小补偿500 HCF
     mapping(address => bool) public isNodeOperator;  // 节点运营商优先权
     
@@ -772,6 +777,50 @@ contract HCFStaking is ReentrancyGuard, Ownable {
     
     function adminWithdraw(address _token, uint256 _amount) external onlyOwner {
         IERC20(_token).transfer(owner(), _amount);
+    }
+    
+    // ========== 静态收益比例计算 ==========
+    
+    /**
+     * @dev 计算用户静态收益比例（基于LP持有量）
+     * @param _user 用户地址
+     * @return staticRatio 静态收益比例 (10000 = 100%)
+     */
+    function calculateStaticRatio(address _user) public view returns (uint256 staticRatio) {
+        UserInfo memory user = userInfo[_user];
+        
+        // 基础50%
+        staticRatio = BASE_STATIC_RATIO;
+        
+        // 根据LP持有的HCF增加比例
+        // 公式: 50% + (LP HCF / 1000 * 50%), 上限100%
+        if (user.isLP && user.lpHCFAmount > 0) {
+            // 获取LP中的HCF价值
+            uint256 lpHCFValue = user.lpHCFAmount;
+            
+            // 计算额外比例: (LP HCF / 1000) * 50%
+            uint256 extraRatio = (lpHCFValue * 5000) / LP_THRESHOLD;
+            
+            staticRatio = staticRatio + extraRatio;
+            
+            // 上限100%
+            if (staticRatio > MAX_STATIC_RATIO) {
+                staticRatio = MAX_STATIC_RATIO;
+            }
+        }
+        
+        return staticRatio;
+    }
+    
+    /**
+     * @dev 计算实际静态收益（考虑静态比例）
+     * @param _user 用户地址
+     * @param _baseReward 基础收益
+     * @return actualReward 实际收益
+     */
+    function calculateActualStaticReward(address _user, uint256 _baseReward) public view returns (uint256) {
+        uint256 staticRatio = calculateStaticRatio(_user);
+        return (_baseReward * staticRatio) / 10000;
     }
     
     // View Functions

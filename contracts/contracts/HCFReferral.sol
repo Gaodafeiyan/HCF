@@ -14,6 +14,7 @@ interface IHCFToken {
 interface IHCFStaking {
     function getUserInfo(address user) external view returns (uint256 amount, bool isLP);
     function updateReferralReward(address user, uint256 reward) external;
+    function calculateStaticRatio(address user) external view returns (uint256);
 }
 
 /**
@@ -85,6 +86,11 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     uint256 public tradingBurnRate = 100;     // 1% 交易烧伤
     uint256 public timedBurnRate = 100;       // 1% 定时烧伤
     address public multiSigWallet;            // 多签钱包（用于投票调整）
+    
+    // 动态收益比例控制
+    uint256 public constant BASE_DYNAMIC_RATIO = 5000;  // 基础动态比50%
+    uint256 public constant MAX_DYNAMIC_RATIO = 10000;  // 最大动态比100%
+    IHCFStaking public stakingContract;  // 用于获取静态比例
     
     // ============ 事件 ============
     
@@ -316,6 +322,10 @@ contract HCFReferral is Ownable, ReentrancyGuard {
             }
             
             uint256 referralReward = (rewardAmount * rewardRate) / 10000;
+            
+            // 应用动态收益比例
+            referralReward = calculateActualDynamicReward(currentReferrer, referralReward);
+            
             if (referralReward > 0) {
                 // 计算燃烧部分
                 uint256 burnAmount = (referralReward * referralBurnRate) / 10000;
@@ -356,6 +366,9 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         if (users[user].teamLevel > 0) {
             TeamLevelConfig memory config = teamLevelConfigs[users[user].teamLevel];
             uint256 teamReward = (rewardAmount * config.rewardRate) / 10000;
+            
+            // 应用动态收益比例
+            teamReward = calculateActualDynamicReward(user, teamReward);
             
             if (teamReward > 0) {
                 // 计算燃烧部分
@@ -606,6 +619,77 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         }
         
         return (true, "Eligible for community ranking");
+    }
+    
+    // ============ 动态收益比例功能 ============
+    
+    /**
+     * @dev 获取用户动态收益比例（基于静态比例）
+     * @param _user 用户地址
+     * @return dynamicRatio 动态收益比例 (10000 = 100%)
+     */
+    function getDynamicRatio(address _user) public view returns (uint256 dynamicRatio) {
+        // 获取用户的静态比例
+        uint256 staticRatio = 5000; // 默认50%
+        if (address(stakingContract) != address(0)) {
+            try stakingContract.calculateStaticRatio(_user) returns (uint256 ratio) {
+                staticRatio = ratio;
+            } catch {
+                // 如果调用失败，使用默认值
+            }
+        }
+        
+        // 动态比例 = max(50%, min(100%, 50% + (静态比 - 50%)))
+        // 简化为：动态比例 = 静态比例（因为公式结果相同）
+        dynamicRatio = staticRatio;
+        
+        // 确保在范围内
+        if (dynamicRatio < BASE_DYNAMIC_RATIO) {
+            dynamicRatio = BASE_DYNAMIC_RATIO;
+        }
+        if (dynamicRatio > MAX_DYNAMIC_RATIO) {
+            dynamicRatio = MAX_DYNAMIC_RATIO;
+        }
+        
+        return dynamicRatio;
+    }
+    
+    /**
+     * @dev 计算实际动态收益（考虑动态比例）
+     * @param _user 用户地址
+     * @param _baseReward 基础收益（二十代/团队级差总和）
+     * @return actualReward 实际收益
+     */
+    function calculateActualDynamicReward(address _user, uint256 _baseReward) public view returns (uint256) {
+        uint256 dynamicRatio = getDynamicRatio(_user);
+        return (_baseReward * dynamicRatio) / 10000;
+    }
+    
+    /**
+     * @dev 获取动态收益显示信息（供前端使用）
+     * @param _user 用户地址
+     * @param _baseReward 基础100%收益量
+     * @return fullReward 100%收益量
+     * @return currentRatio 当前比例
+     * @return actualReward 实际收益量
+     */
+    function getDynamicRewardDisplay(address _user, uint256 _baseReward) external view returns (
+        uint256 fullReward,    // 100%收益量
+        uint256 currentRatio,  // 当前比例
+        uint256 actualReward   // 实际收益量
+    ) {
+        fullReward = _baseReward;
+        currentRatio = getDynamicRatio(_user);
+        actualReward = calculateActualDynamicReward(_user, _baseReward);
+        
+        return (fullReward, currentRatio, actualReward);
+    }
+    
+    /**
+     * @dev 设置质押合约地址（仅owner）
+     */
+    function setStakingContract(address _staking) external onlyOwner {
+        stakingContract = IHCFStaking(_staking);
     }
     
     // ============ 查询功能 ============

@@ -111,10 +111,11 @@ interface IPancakePair {
  * @dev 核心兑换系统 - HCF/USDT直接兑换（通过BSDT桥接）
  * 
  * 兑换机制：
- * - USDT → HCF: 无手续费（鼓励买入）
- * - HCF → USDT: 扣3%手续费（限制卖出）
- * - HCF/BSDT池: 用户可自由添加流动性，参与LP挖矿
- * - BSDT/USDT池: 仅owner控制，1:1锚定价格
+ * - USDT → HCF: 0%手续费（鼓励买入）
+ * - HCF → USDT: 3%手续费（限制卖出）
+ * - BSDT桥: 1:1锚定USDT
+ * - 价格保护: 防暴涨暴跌，滑动0.99~1
+ * - USDC: 仅作为可选桥接，无强制费率
  */
 contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
@@ -147,6 +148,13 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     uint256 public minSwapAmount = 1 * 10**18;      // 最小1个代币
     uint256 public maxSwapAmount = 1000000 * 10**18; // 最大100万
     
+    // 价格保护机制（防暴涨暴跌）
+    uint256 public constant MIN_PRICE_RATIO = 9900;  // 0.99 (最低价格比率)
+    uint256 public constant MAX_PRICE_RATIO = 10000; // 1.00 (最高价格比率)
+    uint256 public lastPrice = 10000; // 上次价格（基准10000）
+    uint256 public priceUpdateInterval = 1 hours; // 价格更新间隔
+    uint256 public lastPriceUpdate; // 上次价格更新时间
+    
     // LP管理（仅HCF/BSDT池）
     mapping(address => uint256) public userLPBalance;
     uint256 public totalLPSupply;
@@ -175,6 +183,7 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
     event FeeCollected(uint256 amount);
     event MonitoredWalletUpdated(address wallet, bool status);
+    event PriceProtectionTriggered(uint256 currentPrice, uint256 lastPrice, bool blocked);
     
     // ============ 构造函数 ============
     
@@ -274,6 +283,13 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
         require(_usdtAmount >= minSwapAmount && _usdtAmount <= maxSwapAmount, "Amount out of range");
         require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
         
+        // 价格保护检查
+        uint256 currentPrice = getHCFPriceRatio();
+        if (!_isPriceWithinRange(currentPrice)) {
+            emit PriceProtectionTriggered(currentPrice, lastPrice, true);
+            revert("Price protection: price outside safe range 0.99-1.0");
+        }
+        
         // 1. 转入USDT
         require(usdtToken.transferFrom(msg.sender, address(this), _usdtAmount), "USDT transfer failed");
         
@@ -306,6 +322,13 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     function swapHCFToUSDT(uint256 _hcfAmount) external nonReentrant {
         require(_hcfAmount >= minSwapAmount && _hcfAmount <= maxSwapAmount, "Amount out of range");
         require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
+        
+        // 价格保护检查
+        uint256 currentPrice = getHCFPriceRatio();
+        if (!_isPriceWithinRange(currentPrice)) {
+            emit PriceProtectionTriggered(currentPrice, lastPrice, true);
+            revert("Price protection: price outside safe range 0.99-1.0");
+        }
         
         // 1. 转入HCF
         require(hcfToken.transferFrom(msg.sender, address(this), _hcfAmount), "HCF transfer failed");
@@ -370,17 +393,18 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev USDC → HCF（买入，无手续费）
+     * @dev USDC → HCF（可选桥接，无强制费率）
+     * 注：USDC为可选桥接，不是主要交易路径
      */
     function swapUSDCToHCF(uint256 _usdcAmount) external nonReentrant {
         require(_usdcAmount >= minSwapAmount && _usdcAmount <= maxSwapAmount, "Amount out of range");
         require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
-        require(address(usdcToken) != address(0), "USDC not configured");
+        require(address(usdcToken) != address(0), "USDC bridge not available");
         
         // 1. 转入USDC
         require(usdcToken.transferFrom(msg.sender, address(this), _usdcAmount), "USDC transfer failed");
         
-        // 2. USDC → USDT (通过PancakeSwap，假设有流动性)
+        // 2. USDC → USDT (可选桥接路径)
         address[] memory pathToUSDT = new address[](2);
         pathToUSDT[0] = address(usdcToken);
         pathToUSDT[1] = address(usdtToken);
@@ -415,12 +439,13 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev HCF → USDC（卖出，扣3%手续费）
+     * @dev HCF → USDC（可选桥接路径，扣3%手续费）
+     * 注：USDC为可选桥接，不是主要交易路径
      */
     function swapHCFToUSDC(uint256 _hcfAmount) external nonReentrant {
         require(_hcfAmount >= minSwapAmount && _hcfAmount <= maxSwapAmount, "Amount out of range");
         require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
-        require(address(usdcToken) != address(0), "USDC not configured");
+        require(address(usdcToken) != address(0), "USDC bridge not available");
         
         // 1. 转入HCF
         require(hcfToken.transferFrom(msg.sender, address(this), _hcfAmount), "HCF transfer failed");
@@ -440,14 +465,14 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
         
         uint256 bsdtReceived = bsdtAmounts[bsdtAmounts.length - 1];
         
-        // 3. 扣除3%手续费
+        // 3. 扣除3%手续费（与HCF→USDT保持一致）
         uint256 feeAmount = (bsdtReceived * SELL_FEE_RATE) / FEE_DENOMINATOR;
         uint256 netAmount = bsdtReceived - feeAmount;
         
         // 4. 销毁BSDT，获得USDT
         bsdtToken.burn(bsdtReceived);
         
-        // 5. USDT → USDC
+        // 5. USDT → USDC (可选桥接)
         address[] memory pathToUSDC = new address[](2);
         pathToUSDC[0] = address(usdtToken);
         pathToUSDC[1] = address(usdcToken);
@@ -705,6 +730,51 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
     function emergencyWithdraw(address _token, uint256 _amount) external onlyOwner {
         IERC20(_token).transfer(owner(), _amount);
+    }
+    
+    // ============ 价格保护功能 ============
+    
+    /**
+     * @dev 获取HCF价格比率（相对于BSDT）
+     */
+    function getHCFPriceRatio() public view returns (uint256) {
+        if (hcfBsdtPair == address(0)) return 10000; // 默认1:1
+        
+        IPancakePair pair = IPancakePair(hcfBsdtPair);
+        (uint112 reserve0, uint112 reserve1,) = pair.getReserves();
+        
+        address token0 = pair.token0();
+        if (token0 == address(hcfToken)) {
+            // price = BSDT / HCF * 10000
+            return (uint256(reserve1) * 10000) / reserve0;
+        } else {
+            // price = BSDT / HCF * 10000
+            return (uint256(reserve0) * 10000) / reserve1;
+        }
+    }
+    
+    /**
+     * @dev 检查价格是否在安全范围内（0.99-1.0）
+     */
+    function _isPriceWithinRange(uint256 currentPrice) internal view returns (bool) {
+        // 价格必须在0.99到1.0之间
+        return currentPrice >= MIN_PRICE_RATIO && currentPrice <= MAX_PRICE_RATIO;
+    }
+    
+    /**
+     * @dev 更新价格基准（仅owner）
+     */
+    function updatePriceBaseline() external onlyOwner {
+        require(block.timestamp >= lastPriceUpdate + priceUpdateInterval, "Too early to update");
+        lastPrice = getHCFPriceRatio();
+        lastPriceUpdate = block.timestamp;
+    }
+    
+    /**
+     * @dev 设置价格更新间隔
+     */
+    function setPriceUpdateInterval(uint256 _interval) external onlyOwner {
+        priceUpdateInterval = _interval;
     }
     
     // ============ 退单功能（支持USDC桥接） ============

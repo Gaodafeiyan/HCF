@@ -156,7 +156,7 @@ contract BSDTToken is ERC20, Ownable, ReentrancyGuard {
      * @param usdtAmount USDT数量
      */
     function mintBSDT(address to, uint256 usdtAmount) external onlyAuthorizedExchange {
-        mint(to, usdtAmount);
+        this.mint(to, usdtAmount);
     }
     
     /**

@@ -17,13 +17,16 @@ contract USDTOracle is Ownable {
     
     // ============ 状态变量 ============
     
-    // USDT供应量数据
+    // 稳定币供应量数据
     struct SupplyData {
         uint256 totalSupply;      // USDT总供应量
         uint256 ethSupply;        // Ethereum链上供应量
         uint256 bscSupply;        // BSC链上供应量
         uint256 tronSupply;       // Tron链上供应量
         uint256 otherSupply;      // 其他链供应量
+        uint256 usdcTotalSupply;  // USDC总供应量
+        uint256 usdcEthSupply;    // USDC在Ethereum供应量
+        uint256 usdcBscSupply;    // USDC在BSC供应量
         uint256 lastUpdateTime;   // 最后更新时间
         uint256 updateCount;      // 更新次数
     }
@@ -43,6 +46,9 @@ contract USDTOracle is Ownable {
         uint256 bscSupply;
         uint256 tronSupply;
         uint256 otherSupply;
+        uint256 usdcTotalSupply;
+        uint256 usdcEthSupply;
+        uint256 usdcBscSupply;
         uint256 confirmations;
         mapping(address => bool) confirmed;
         bool executed;
@@ -93,13 +99,16 @@ contract USDTOracle is Ownable {
     // ============ 构造函数 ============
     
     constructor() Ownable(msg.sender) {
-        // 初始化USDT供应量（可以设置初始值）
+        // 初始化稳定币供应量（可以设置初始值）
         currentSupplyData = SupplyData({
             totalSupply: 83000000000 * 10**6,  // 830亿USDT初始值
             ethSupply: 40000000000 * 10**6,    // 400亿在Ethereum
             bscSupply: 20000000000 * 10**6,    // 200亿在BSC
             tronSupply: 20000000000 * 10**6,   // 200亿在Tron
             otherSupply: 3000000000 * 10**6,   // 30亿在其他链
+            usdcTotalSupply: 32000000000 * 10**6,  // 320亿USDC初始值
+            usdcEthSupply: 25000000000 * 10**6,    // 250亿在Ethereum
+            usdcBscSupply: 7000000000 * 10**6,     // 70亿在BSC
             lastUpdateTime: block.timestamp,
             updateCount: 0
         });
@@ -189,6 +198,9 @@ contract USDTOracle is Ownable {
             bscSupply: update.bscSupply,
             tronSupply: update.tronSupply,
             otherSupply: update.otherSupply,
+            usdcTotalSupply: update.usdcTotalSupply,
+            usdcEthSupply: update.usdcEthSupply,
+            usdcBscSupply: update.usdcBscSupply,
             lastUpdateTime: block.timestamp,
             updateCount: currentSupplyData.updateCount + 1
         });
@@ -234,6 +246,9 @@ contract USDTOracle is Ownable {
             bscSupply: _bscSupply,
             tronSupply: _tronSupply,
             otherSupply: _otherSupply,
+            usdcTotalSupply: currentSupplyData.usdcTotalSupply,  // 保留现有USDC数据
+            usdcEthSupply: currentSupplyData.usdcEthSupply,
+            usdcBscSupply: currentSupplyData.usdcBscSupply,
             lastUpdateTime: block.timestamp,
             updateCount: currentSupplyData.updateCount + 1
         });
@@ -280,6 +295,86 @@ contract USDTOracle is Ownable {
             currentSupplyData.otherSupply,
             currentSupplyData.lastUpdateTime
         );
+    }
+    
+    /**
+     * @dev 提交完整供应量更新（包括USDC）
+     */
+    function submitFullSupplyUpdate(
+        uint256 _totalSupply,
+        uint256 _ethSupply,
+        uint256 _bscSupply,
+        uint256 _tronSupply,
+        uint256 _otherSupply,
+        uint256 _usdcTotalSupply,
+        uint256 _usdcEthSupply,
+        uint256 _usdcBscSupply
+    ) external onlyDataProvider updateIntervalPassed {
+        // 验证USDT数据一致性
+        require(
+            _totalSupply == _ethSupply + _bscSupply + _tronSupply + _otherSupply,
+            "USDT supply data inconsistent"
+        );
+        
+        // 验证USDC数据一致性
+        require(
+            _usdcTotalSupply >= _usdcEthSupply + _usdcBscSupply,
+            "USDC supply data inconsistent"
+        );
+        
+        // 保存当前数据为历史数据
+        previousSupplyData = currentSupplyData;
+        
+        // 更新当前数据
+        currentSupplyData = SupplyData({
+            totalSupply: _totalSupply,
+            ethSupply: _ethSupply,
+            bscSupply: _bscSupply,
+            tronSupply: _tronSupply,
+            otherSupply: _otherSupply,
+            usdcTotalSupply: _usdcTotalSupply,
+            usdcEthSupply: _usdcEthSupply,
+            usdcBscSupply: _usdcBscSupply,
+            lastUpdateTime: block.timestamp,
+            updateCount: currentSupplyData.updateCount + 1
+        });
+        
+        // 如果设置了BSDT合约，更新其发行上限（基于USDT+USDC总量）
+        if (bsdtToken != address(0)) {
+            uint256 combinedSupply = _totalSupply + _usdcTotalSupply;
+            IBSDTToken(bsdtToken).updateMaxSupply(combinedSupply);
+        }
+        
+        emit SupplyUpdated(
+            _totalSupply,
+            _ethSupply,
+            _bscSupply,
+            _tronSupply,
+            _otherSupply,
+            block.timestamp
+        );
+    }
+    
+    /**
+     * @dev 获取USDC供应量详情
+     */
+    function getUSDCSupplyDetails() external view returns (
+        uint256 total,
+        uint256 eth,
+        uint256 bsc
+    ) {
+        return (
+            currentSupplyData.usdcTotalSupply,
+            currentSupplyData.usdcEthSupply,
+            currentSupplyData.usdcBscSupply
+        );
+    }
+    
+    /**
+     * @dev 获取总稳定币供应量（USDT + USDC）
+     */
+    function getCombinedStableSupply() external view returns (uint256) {
+        return currentSupplyData.totalSupply + currentSupplyData.usdcTotalSupply;
     }
     
     /**

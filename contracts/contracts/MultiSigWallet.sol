@@ -214,7 +214,7 @@ contract MultiSigWallet is ReentrancyGuard {
             _transferTax
         );
         
-        return submitTransaction(hcfToken, 0, data);
+        return this.submitTransaction(hcfToken, 0, data);
     }
     
     /**
@@ -229,7 +229,7 @@ contract MultiSigWallet is ReentrancyGuard {
         
         if (_token == address(0)) {
             // 提取ETH/BNB
-            return submitTransaction(_to, _amount, "");
+            return this.submitTransaction(_to, _amount, "");
         } else {
             // 提取ERC20
             data = abi.encodeWithSignature(
@@ -237,7 +237,7 @@ contract MultiSigWallet is ReentrancyGuard {
                 _to,
                 _amount
             );
-            return submitTransaction(_token, 0, data);
+            return this.submitTransaction(_token, 0, data);
         }
     }
     
@@ -257,7 +257,7 @@ contract MultiSigWallet is ReentrancyGuard {
             _bsdtAmount
         );
         
-        return submitTransaction(_exchange, 0, data);
+        return this.submitTransaction(_exchange, 0, data);
     }
     
     // ============ 管理功能 ============
@@ -274,7 +274,7 @@ contract MultiSigWallet is ReentrancyGuard {
             _signer
         );
         
-        submitTransaction(address(this), 0, data);
+        this.submitTransaction(address(this), 0, data);
     }
     
     function _addSigner(address _signer) external {
@@ -298,7 +298,7 @@ contract MultiSigWallet is ReentrancyGuard {
             _signer
         );
         
-        submitTransaction(address(this), 0, data);
+        this.submitTransaction(address(this), 0, data);
     }
     
     function _removeSigner(address _signer) external {
@@ -328,7 +328,7 @@ contract MultiSigWallet is ReentrancyGuard {
             _required
         );
         
-        submitTransaction(address(this), 0, data);
+        this.submitTransaction(address(this), 0, data);
     }
     
     function _changeRequiredConfirmations(uint256 _required) external {

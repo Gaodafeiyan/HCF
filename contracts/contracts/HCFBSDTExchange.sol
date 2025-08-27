@@ -9,6 +9,7 @@ interface IHCFToken {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
 }
 
 interface IHCFLPMining {
@@ -20,6 +21,7 @@ interface IBSDT {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
     function mint(address to, uint256 amount) external;
     function burn(uint256 amount) external;
     function totalSupply() external view returns (uint256);
@@ -29,6 +31,14 @@ interface IUSDT {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
+}
+
+interface IUSDC {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+    function approve(address spender, uint256 amount) external returns (bool);
 }
 
 // PancakeSwap接口
@@ -113,6 +123,7 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     IHCFToken public hcfToken;
     IBSDT public bsdtToken;
     IUSDT public usdtToken;
+    IUSDC public usdcToken;
     IHCFLPMining public lpMiningContract;
     
     // PancakeSwap
@@ -140,10 +151,16 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     mapping(address => uint256) public userLPBalance;
     uint256 public totalLPSupply;
     
+    // 无常损失保护
+    uint256 public constant MIN_COMPENSATION = 500 * 10**18; // 最小补偿500 HCF
+    mapping(address => uint256) public lastLPValue; // 记录用户LP初始价值
+    
     // ============ 事件 ============
     
     event SwapUSDTToHCF(address indexed user, uint256 usdtIn, uint256 hcfOut);
     event SwapHCFToUSDT(address indexed user, uint256 hcfIn, uint256 usdtOut, uint256 fee);
+    event SwapUSDCToHCF(address indexed user, uint256 usdcIn, uint256 hcfOut);
+    event SwapHCFToUSDC(address indexed user, uint256 hcfIn, uint256 usdcOut, uint256 fee);
     event SwapHCFToBSDT(address indexed user, uint256 hcfIn, uint256 bsdtOut);
     event SwapBSDTToHCF(address indexed user, uint256 bsdtIn, uint256 hcfOut);
     
@@ -152,6 +169,9 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
     event AutoBSDTMinted(address indexed user, uint256 usdtAmount, uint256 bsdtAmount);
     event AutoUSDTTransferred(address indexed user, uint256 bsdtAmount, uint256 usdtAmount);
+    
+    event WithdrawalProcessed(address indexed user, uint256 bsdtAmount, uint256 outputAmount, bool useUSDC);
+    event ImpermanentLossCompensation(address indexed user, uint256 hcfAmount);
     
     event FeeCollected(uint256 amount);
     event MonitoredWalletUpdated(address wallet, bool status);
@@ -162,12 +182,14 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
         address _hcfToken,
         address _bsdtToken,
         address _usdtToken,
+        address _usdcToken,
         address _pancakeRouter,
         address _feeCollector
     ) Ownable(msg.sender) {
         hcfToken = IHCFToken(_hcfToken);
         bsdtToken = IBSDT(_bsdtToken);
         usdtToken = IUSDT(_usdtToken);
+        usdcToken = IUSDC(_usdcToken);
         pancakeRouter = IPancakeRouter02(_pancakeRouter);
         feeCollector = _feeCollector;
         monitoringOperator = msg.sender;
@@ -176,6 +198,9 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
         hcfToken.approve(_pancakeRouter, type(uint256).max);
         bsdtToken.approve(_pancakeRouter, type(uint256).max);
         usdtToken.approve(_pancakeRouter, type(uint256).max);
+        if (_usdcToken != address(0)) {
+            usdcToken.approve(_pancakeRouter, type(uint256).max);
+        }
     }
     
     // ============ 初始化流动性池 ============
@@ -345,6 +370,107 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     }
     
     /**
+     * @dev USDC → HCF（买入，无手续费）
+     */
+    function swapUSDCToHCF(uint256 _usdcAmount) external nonReentrant {
+        require(_usdcAmount >= minSwapAmount && _usdcAmount <= maxSwapAmount, "Amount out of range");
+        require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
+        require(address(usdcToken) != address(0), "USDC not configured");
+        
+        // 1. 转入USDC
+        require(usdcToken.transferFrom(msg.sender, address(this), _usdcAmount), "USDC transfer failed");
+        
+        // 2. USDC → USDT (通过PancakeSwap，假设有流动性)
+        address[] memory pathToUSDT = new address[](2);
+        pathToUSDT[0] = address(usdcToken);
+        pathToUSDT[1] = address(usdtToken);
+        
+        uint256[] memory usdtAmounts = pancakeRouter.swapExactTokensForTokens(
+            _usdcAmount,
+            0,
+            pathToUSDT,
+            address(this),
+            block.timestamp + 300
+        );
+        
+        uint256 usdtReceived = usdtAmounts[usdtAmounts.length - 1];
+        
+        // 3. 铸造等量BSDT（1:1）
+        bsdtToken.mint(address(this), usdtReceived);
+        
+        // 4. BSDT → HCF
+        address[] memory pathToHCF = new address[](2);
+        pathToHCF[0] = address(bsdtToken);
+        pathToHCF[1] = address(hcfToken);
+        
+        uint256[] memory hcfAmounts = pancakeRouter.swapExactTokensForTokens(
+            usdtReceived,
+            0,
+            pathToHCF,
+            msg.sender,
+            block.timestamp + 300
+        );
+        
+        emit SwapUSDCToHCF(msg.sender, _usdcAmount, hcfAmounts[hcfAmounts.length - 1]);
+    }
+    
+    /**
+     * @dev HCF → USDC（卖出，扣3%手续费）
+     */
+    function swapHCFToUSDC(uint256 _hcfAmount) external nonReentrant {
+        require(_hcfAmount >= minSwapAmount && _hcfAmount <= maxSwapAmount, "Amount out of range");
+        require(hcfBsdtPair != address(0), "HCF/BSDT pool not initialized");
+        require(address(usdcToken) != address(0), "USDC not configured");
+        
+        // 1. 转入HCF
+        require(hcfToken.transferFrom(msg.sender, address(this), _hcfAmount), "HCF transfer failed");
+        
+        // 2. HCF → BSDT
+        address[] memory pathToBSDT = new address[](2);
+        pathToBSDT[0] = address(hcfToken);
+        pathToBSDT[1] = address(bsdtToken);
+        
+        uint256[] memory bsdtAmounts = pancakeRouter.swapExactTokensForTokens(
+            _hcfAmount,
+            0,
+            pathToBSDT,
+            address(this),
+            block.timestamp + 300
+        );
+        
+        uint256 bsdtReceived = bsdtAmounts[bsdtAmounts.length - 1];
+        
+        // 3. 扣除3%手续费
+        uint256 feeAmount = (bsdtReceived * SELL_FEE_RATE) / FEE_DENOMINATOR;
+        uint256 netAmount = bsdtReceived - feeAmount;
+        
+        // 4. 销毁BSDT，获得USDT
+        bsdtToken.burn(bsdtReceived);
+        
+        // 5. USDT → USDC
+        address[] memory pathToUSDC = new address[](2);
+        pathToUSDC[0] = address(usdtToken);
+        pathToUSDC[1] = address(usdcToken);
+        
+        uint256[] memory usdcAmounts = pancakeRouter.swapExactTokensForTokens(
+            netAmount,
+            0,
+            pathToUSDC,
+            msg.sender,
+            block.timestamp + 300
+        );
+        
+        // 6. 处理手续费
+        if (feeAmount > 0) {
+            totalFeesCollected += feeAmount;
+            require(usdtToken.transfer(feeCollector, feeAmount), "Fee transfer failed");
+            emit FeeCollected(feeAmount);
+        }
+        
+        emit SwapHCFToUSDC(msg.sender, _hcfAmount, usdcAmounts[usdcAmounts.length - 1], feeAmount);
+    }
+    
+    /**
      * @dev BSDT → HCF 直接兑换
      */
     function swapBSDTToHCF(uint256 _bsdtAmount) external nonReentrant {
@@ -403,9 +529,10 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
             bsdtToken.transfer(msg.sender, _bsdtAmount - bsdtUsed);
         }
         
-        // 记录用户LP份额
+        // 记录用户LP份额和初始价值
         userLPBalance[msg.sender] += liquidity;
         totalLPSupply += liquidity;
+        lastLPValue[msg.sender] = hcfUsed + bsdtUsed; // 记录初始价值用于无常损失计算
         
         // 更新LP挖矿（如果已设置）
         if (address(lpMiningContract) != address(0)) {
@@ -578,5 +705,104 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
     function emergencyWithdraw(address _token, uint256 _amount) external onlyOwner {
         IERC20(_token).transfer(owner(), _amount);
+    }
+    
+    // ============ 退单功能（支持USDC桥接） ============
+    
+    /**
+     * @dev 退单处理（BSDT转换，可选USDC桥接）
+     * @param _bsdtAmount BSDT数量
+     * @param _useUSDCBridge 是否使用USDC桥接（更稳定）
+     */
+    function withdraw(uint256 _bsdtAmount, bool _useUSDCBridge) external nonReentrant {
+        require(_bsdtAmount > 0, "Amount must be positive");
+        require(bsdtToken.balanceOf(msg.sender) >= _bsdtAmount, "Insufficient BSDT balance");
+        
+        // 转入BSDT
+        require(bsdtToken.transferFrom(msg.sender, address(this), _bsdtAmount), "BSDT transfer failed");
+        
+        uint256 outputAmount;
+        
+        if (_useUSDCBridge && address(usdcToken) != address(0)) {
+            // 使用USDC桥接：BSDT → USDT → USDC
+            // 1. 销毁BSDT，释放USDT
+            bsdtToken.burn(_bsdtAmount);
+            
+            // 2. USDT → USDC (通过PancakeSwap)
+            address[] memory path = new address[](2);
+            path[0] = address(usdtToken);
+            path[1] = address(usdcToken);
+            
+            uint256[] memory amounts = pancakeRouter.swapExactTokensForTokens(
+                _bsdtAmount,
+                0,
+                path,
+                msg.sender,
+                block.timestamp + 300
+            );
+            
+            outputAmount = amounts[amounts.length - 1];
+            emit WithdrawalProcessed(msg.sender, _bsdtAmount, outputAmount, true);
+        } else {
+            // 直接输出USDT
+            bsdtToken.burn(_bsdtAmount);
+            require(usdtToken.transfer(msg.sender, _bsdtAmount), "USDT transfer failed");
+            outputAmount = _bsdtAmount;
+            emit WithdrawalProcessed(msg.sender, _bsdtAmount, outputAmount, false);
+        }
+    }
+    
+    /**
+     * @dev 移除流动性（含无常损失补偿）
+     */
+    function removeLiquidityWithCompensation(uint256 _lpAmount) external nonReentrant {
+        require(_lpAmount > 0 && _lpAmount <= userLPBalance[msg.sender], "Invalid LP amount");
+        
+        // 更新用户余额
+        userLPBalance[msg.sender] -= _lpAmount;
+        totalLPSupply -= _lpAmount;
+        
+        // 授权LP代币给路由器
+        IPancakePair pair = IPancakePair(hcfBsdtPair);
+        pair.approve(address(pancakeRouter), _lpAmount);
+        
+        // 移除流动性
+        (uint256 hcfAmount, uint256 bsdtAmount) = pancakeRouter.removeLiquidity(
+            address(hcfToken),
+            address(bsdtToken),
+            _lpAmount,
+            0,
+            0,
+            msg.sender,
+            block.timestamp + 300
+        );
+        
+        // 计算无常损失补偿（最少500 HCF）
+        uint256 currentValue = hcfAmount + bsdtAmount;
+        uint256 initialValue = lastLPValue[msg.sender];
+        
+        if (initialValue > currentValue) {
+            uint256 loss = initialValue - currentValue;
+            uint256 compensation = loss > MIN_COMPENSATION ? loss : MIN_COMPENSATION;
+            
+            // 从储备池补偿HCF
+            if (hcfToken.balanceOf(address(this)) >= compensation) {
+                hcfToken.transfer(msg.sender, compensation);
+                emit ImpermanentLossCompensation(msg.sender, compensation);
+            }
+        } else {
+            // 即使没有损失，也补偿最小500 HCF（激励LP提供者）
+            if (hcfToken.balanceOf(address(this)) >= MIN_COMPENSATION) {
+                hcfToken.transfer(msg.sender, MIN_COMPENSATION);
+                emit ImpermanentLossCompensation(msg.sender, MIN_COMPENSATION);
+            }
+        }
+        
+        // 更新LP挖矿
+        if (address(lpMiningContract) != address(0)) {
+            lpMiningContract.updateBSDTLPBalance(msg.sender, userLPBalance[msg.sender]);
+        }
+        
+        emit LiquidityRemoved(msg.sender, _lpAmount, hcfAmount, bsdtAmount);
     }
 }

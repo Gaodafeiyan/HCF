@@ -49,8 +49,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     uint256 public currentNodeId = 0;
     
     // 申请费用 (动态调整)
-    uint256 public baseApplicationFee = 5000 * 10**18; // 5000 BSDT
-    uint256 public highPriceApplicationFee = 50000 * 10**18; // 50000 HCF
+    uint256 public baseApplicationFee = 5000 * 10**18; // 5000 BSDT (价格<1.3U时)
+    uint256 public highPriceApplicationFee = 5000 * 10**18; // 5000 HCF (价格>=1.3U时)
     uint256 public priceThreshold = 1300; // 1.3 USD (basis points: 1300/1000 = 1.3)
     
     // 激活要求
@@ -64,24 +64,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     uint256 public constant MIN_COMPUTING_THRESHOLD = 1000 * 10**18; // 最小1000 HCF才能增产
     uint256 public constant MIN_ONLINE_RATE = 9000; // 最小在线率90%才能分红
     
-    // 节点等级定义
-    enum NodeLevel {
-        Light,      // 轻量级: 1万 HCF
-        Standard,   // 标准级: 5万 HCF
-        Advanced,   // 高级: 10万 HCF
-        Premium,    // 优质: 20万 HCF
-        Super       // 超级: 50万 HCF
-    }
-    
-    // 节点等级配置
-    struct LevelConfig {
-        uint256 requiredHCF;     // 所需HCF数量
-        uint256 stakingBonus;    // 质押收益加成 (basis points)
-        uint256 votingWeight;    // 投票权重
-        uint256 rankingPoints;   // 排名加分
-    }
-    
-    mapping(NodeLevel => LevelConfig) public levelConfigs;
+    // 算力计算参数
+    uint256 public maxLPHCF = 100000 * 10**18;  // LP中HCF最大值（用于算力计算）
     
     // 节点信息
     struct NodeInfo {
@@ -92,8 +76,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         bool isActive;
         uint256 computingPower;        // 当前算力百分比 (basis points: 10000 = 100%)
         uint256 onlineRate;            // 在线率 (basis points: 10000 = 100%)
-        NodeLevel level;               // 节点等级
-        uint256 hcfBalance;            // 持有的HCF数量
+        uint256 lpHCFAmount;           // LP中的HCF数量
+        uint256 lpBSDTAmount;          // LP中的BSDT数量
         uint256 lastUpdateTime;        // 最后更新时间
         uint256 totalSlippageRewards;
         uint256 totalWithdrawalFeeRewards;
@@ -134,42 +118,6 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         hcfToken = IHCFToken(_hcfToken);
         bsdtToken = IBSDT(_bsdtToken);
         bsdtExchange = IHCFBSDTExchange(_bsdtExchange);
-        
-        // 初始化节点等级配置
-        levelConfigs[NodeLevel.Light] = LevelConfig({
-            requiredHCF: 10000 * 10**18,    // 1万 HCF
-            stakingBonus: 400,               // +4% 质押收益
-            votingWeight: 1,                 // 1票权重
-            rankingPoints: 100               // +100排名分
-        });
-        
-        levelConfigs[NodeLevel.Standard] = LevelConfig({
-            requiredHCF: 50000 * 10**18,    // 5万 HCF
-            stakingBonus: 800,               // +8% 质押收益
-            votingWeight: 2,                 // 2票权重
-            rankingPoints: 200               // +200排名分
-        });
-        
-        levelConfigs[NodeLevel.Advanced] = LevelConfig({
-            requiredHCF: 100000 * 10**18,   // 10万 HCF
-            stakingBonus: 1200,              // +12% 质押收益
-            votingWeight: 3,                 // 3票权重
-            rankingPoints: 300               // +300排名分
-        });
-        
-        levelConfigs[NodeLevel.Premium] = LevelConfig({
-            requiredHCF: 200000 * 10**18,   // 20万 HCF
-            stakingBonus: 1600,              // +16% 质押收益
-            votingWeight: 4,                 // 4票权重
-            rankingPoints: 400               // +400排名分
-        });
-        
-        levelConfigs[NodeLevel.Super] = LevelConfig({
-            requiredHCF: 500000 * 10**18,   // 50万 HCF
-            stakingBonus: 2000,              // +20% 质押收益
-            votingWeight: 5,                 // 5票权重
-            rankingPoints: 500               // +500排名分
-        });
     }
     
     // ============ 核心功能 ============
@@ -203,8 +151,8 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
             isActive: false,
             computingPower: 0, // 初始算力为0，激活后根据LP计算
             onlineRate: 10000,  // 初始100%在线
-            level: NodeLevel.Light, // 默认轻量级
-            hcfBalance: 0,
+            lpHCFAmount: 0,
+            lpBSDTAmount: 0,
             lastUpdateTime: block.timestamp,
             totalSlippageRewards: 0,
             totalWithdrawalFeeRewards: 0,
@@ -248,8 +196,9 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         uint256 initialComputingPower = calculateDynamicComputingPower(msg.sender);
         nodes[nodeId].computingPower = initialComputingPower;
         
-        // 更新节点等级
-        _updateNodeLevel(nodeId);
+        // 更新LP数量
+        nodes[nodeId].lpHCFAmount = activationLPHCFAmount;
+        nodes[nodeId].lpBSDTAmount = activationLPBSDTAmount;
         
         emit NodeActivated(msg.sender, nodeId);
         if (initialComputingPower > 0) {
@@ -260,7 +209,29 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
     // ============ 动态算力系统 ============
     
     /**
-     * @dev 计算用户的动态算力: LP HCF/1000 × 100%
+     * @dev 计算节点的动态算力: LP HCF/maxLPHCF × 100%
+     * @param _nodeId 节点ID
+     * @return computingPower 算力百分比 (basis points: 10000 = 100%)
+     */
+    function calculateNodeComputingPower(uint256 _nodeId) public view returns (uint256 computingPower) {
+        NodeInfo memory node = nodes[_nodeId];
+        if (!node.isActive || node.lpHCFAmount == 0) {
+            return 0;
+        }
+        
+        // 算力 = LP中HCF / 最大HCF × 100%
+        computingPower = (node.lpHCFAmount * 10000) / maxLPHCF;
+        
+        // 最大100%算力
+        if (computingPower > 10000) {
+            computingPower = 10000;
+        }
+        
+        return computingPower;
+    }
+    
+    /**
+     * @dev 计算用户的动态算力（兼容旧接口）
      * @param _user 用户地址
      * @return computingPower 算力百分比 (basis points: 10000 = 100%)
      */
@@ -338,27 +309,6 @@ contract HCFNodeNFT is ERC721, Ownable, ReentrancyGuard {
         }
     }
     
-    /**
-     * @dev 更新节点等级 (根据持仓HCF数量)
-     */
-    function _updateNodeLevel(uint256 _nodeId) internal {
-        NodeInfo storage node = nodes[_nodeId];
-        uint256 hcfBalance = hcfToken.balanceOf(node.owner);
-        node.hcfBalance = hcfBalance;
-        
-        // 根据持仓量确定等级
-        if (hcfBalance >= levelConfigs[NodeLevel.Super].requiredHCF) {
-            node.level = NodeLevel.Super;
-        } else if (hcfBalance >= levelConfigs[NodeLevel.Premium].requiredHCF) {
-            node.level = NodeLevel.Premium;
-        } else if (hcfBalance >= levelConfigs[NodeLevel.Advanced].requiredHCF) {
-            node.level = NodeLevel.Advanced;
-        } else if (hcfBalance >= levelConfigs[NodeLevel.Standard].requiredHCF) {
-            node.level = NodeLevel.Standard;
-        } else {
-            node.level = NodeLevel.Light;
-        }
-    }
     
     /**
      * @dev 获取节点的质押收益加成

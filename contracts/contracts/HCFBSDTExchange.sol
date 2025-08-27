@@ -777,12 +777,13 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
         priceUpdateInterval = _interval;
     }
     
-    // ============ 退单功能（支持USDC桥接） ============
+    // ============ 退单功能（BSDT直接或桥接USDC输出） ============
     
     /**
-     * @dev 退单处理（BSDT转换，可选USDC桥接）
-     * @param _bsdtAmount BSDT数量
-     * @param _useUSDCBridge 是否使用USDC桥接（更稳定）
+     * @dev 退单处理（BSDT直接输出或可选USDC桥接）
+     * 注：无条件限制、无额外费用、无审核（卖出已扣3%）
+     * @param _bsdtAmount BSDT数量  
+     * @param _useUSDCBridge 是否使用USDC桥接（可选稳定币输出）
      */
     function withdraw(uint256 _bsdtAmount, bool _useUSDCBridge) external nonReentrant {
         require(_bsdtAmount > 0, "Amount must be positive");
@@ -824,6 +825,7 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
     
     /**
      * @dev 移除流动性（含无常损失补偿）
+     * LP补偿：最少500 HCF（激励LP提供者）
      */
     function removeLiquidityWithCompensation(uint256 _lpAmount) external nonReentrant {
         require(_lpAmount > 0 && _lpAmount <= userLPBalance[msg.sender], "Invalid LP amount");
@@ -847,25 +849,10 @@ contract HCFBSDTExchange is Ownable, ReentrancyGuard {
             block.timestamp + 300
         );
         
-        // 计算无常损失补偿（最少500 HCF）
-        uint256 currentValue = hcfAmount + bsdtAmount;
-        uint256 initialValue = lastLPValue[msg.sender];
-        
-        if (initialValue > currentValue) {
-            uint256 loss = initialValue - currentValue;
-            uint256 compensation = loss > MIN_COMPENSATION ? loss : MIN_COMPENSATION;
-            
-            // 从储备池补偿HCF
-            if (hcfToken.balanceOf(address(this)) >= compensation) {
-                hcfToken.transfer(msg.sender, compensation);
-                emit ImpermanentLossCompensation(msg.sender, compensation);
-            }
-        } else {
-            // 即使没有损失，也补偿最小500 HCF（激励LP提供者）
-            if (hcfToken.balanceOf(address(this)) >= MIN_COMPENSATION) {
-                hcfToken.transfer(msg.sender, MIN_COMPENSATION);
-                emit ImpermanentLossCompensation(msg.sender, MIN_COMPENSATION);
-            }
+        // LP补偿：至少500 HCF
+        if (hcfToken.balanceOf(address(this)) >= MIN_COMPENSATION) {
+            hcfToken.transfer(msg.sender, MIN_COMPENSATION);
+            emit ImpermanentLossCompensation(msg.sender, MIN_COMPENSATION);
         }
         
         // 更新LP挖矿

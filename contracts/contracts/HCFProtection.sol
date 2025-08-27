@@ -78,7 +78,6 @@ contract HCFProtection is Ownable, ReentrancyGuard {
         uint256 tradeVolumeThreshold; // 交易量阈值1%
         uint256 timedBurnInterval;    // 定时销毁间隔
         uint256 lastTimedBurn;
-        uint256 burnCeiling;          // 烧伤封顶
         bool voteBurnEnabled;         // 投票销毁启用
     }
     
@@ -155,7 +154,6 @@ contract HCFProtection is Ownable, ReentrancyGuard {
             tradeVolumeThreshold: 100, // 1%交易量
             timedBurnInterval: 24 hours,
             lastTimedBurn: block.timestamp,
-            burnCeiling: 1000000 * 10**18, // 100万封顶
             voteBurnEnabled: false
         });
         
@@ -250,7 +248,7 @@ contract HCFProtection is Ownable, ReentrancyGuard {
         uint256 totalSupply = hcfToken.balanceOf(address(this));
         uint256 burnAmount = (totalSupply * slippagePercent / 2) / 10000;
         
-        if (burnAmount > 0 && burnAmount <= burnConfig.burnCeiling) {
+        if (burnAmount > 0) {
             hcfToken.burn(burnAmount);
         }
         
@@ -348,8 +346,6 @@ contract HCFProtection is Ownable, ReentrancyGuard {
      * @dev 执行烧伤
      */
     function _executeBurn(uint256 amount, string memory reason) internal {
-        require(amount <= burnConfig.burnCeiling, "Exceeds ceiling");
-        
         if (amount > 0 && hcfToken.balanceOf(address(this)) >= amount) {
             hcfToken.burn(amount);
             emit BurnTriggered(reason, amount);
@@ -494,13 +490,11 @@ contract HCFProtection is Ownable, ReentrancyGuard {
     function updateBurnConfig(
         uint256 _volatility,
         uint256 _volume,
-        uint256 _interval,
-        uint256 _ceiling
+        uint256 _interval
     ) external onlyOwner {
         burnConfig.volatilityThreshold = _volatility;
         burnConfig.tradeVolumeThreshold = _volume;
         burnConfig.timedBurnInterval = _interval;
-        burnConfig.burnCeiling = _ceiling;
     }
     
     function toggleProductionReduction(bool _active) external onlyOwner {

@@ -62,7 +62,8 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     mapping(address => UserData) public users;
     mapping(address => address[]) public directReferrals; // 直推列表
     mapping(uint256 => TeamLevelConfig) public teamLevelConfigs; // V1-V6配置
-    mapping(uint256 => uint256) public referralRates; // 20级推荐费率
+    mapping(uint256 => uint256) public depositReferralRates; // 入金推荐奖励费率
+    mapping(uint256 => uint256) public staticReferralRates; // 静态收益推荐奖励费率
     
     // ============ 系统参数 ============
     
@@ -117,48 +118,49 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     // ============ 初始化配置 ============
     
     function _initializeReferralRates() private {
-        // 20级推荐费率配置 - 按照文档要求
-        referralRates[1] = 3000;  // 30%
-        referralRates[2] = 2000;  // 20%
-        referralRates[3] = 1500;  // 15%
-        referralRates[4] = 1000;  // 10%
-        referralRates[5] = 800;   // 8%
-        referralRates[6] = 500;   // 5%
+        // 入金推荐奖励 (烧伤限制)
+        depositReferralRates[1] = 500;  // 一代5%
+        depositReferralRates[2] = 300;  // 二代3%
+        // 3-20代无入金奖励
         
-        // 7-10级各3%
-        for (uint256 i = 7; i <= 10; i++) {
-            referralRates[i] = 300; // 3%
+        // 静态收益推荐奖励 (V3/V4解锁, 烧10%)
+        staticReferralRates[1] = 2000;  // 一代20%
+        staticReferralRates[2] = 1000;  // 二代10%
+        
+        // 3-8级各5% (V3解锁6-8代)
+        for (uint256 i = 3; i <= 8; i++) {
+            staticReferralRates[i] = 500; // 5%
         }
         
-        // 11-15级各1%
-        for (uint256 i = 11; i <= 15; i++) {
-            referralRates[i] = 100; // 1%
+        // 9-15级各3% (V4解锁9-15代)
+        for (uint256 i = 9; i <= 15; i++) {
+            staticReferralRates[i] = 300; // 3%
         }
         
-        // 16-20级各0.5%
+        // 16-20级各2%
         for (uint256 i = 16; i <= 20; i++) {
-            referralRates[i] = 50; // 0.5%
+            staticReferralRates[i] = 200; // 2%
         }
     }
     
     function _initializeTeamLevelConfigs() private {
-        // V1: 6% 团队奖励, 需要3个直推, 2000 HCF小区业绩, 需要下级V1
-        teamLevelConfigs[1] = TeamLevelConfig(3, 2000 * 10**18, 600, true);
+        // V1: 6% 团队奖励, 小区2000 HCF, 需要下级V1 (烧5%)
+        teamLevelConfigs[1] = TeamLevelConfig(0, 2000 * 10**18, 600, true);
         
-        // V2: 12% 团队奖励, 需要5个直推, 20000 HCF小区业绩, 需要下级V2
-        teamLevelConfigs[2] = TeamLevelConfig(5, 20000 * 10**18, 1200, true);
+        // V2: 12% 团队奖励, 小区20000 HCF, 需要下级V2 (烧5%)
+        teamLevelConfigs[2] = TeamLevelConfig(0, 20000 * 10**18, 1200, true);
         
-        // V3: 18% 团队奖励, 需要10个直推, 200000 HCF小区业绩, 需要下级V3
-        teamLevelConfigs[3] = TeamLevelConfig(10, 200000 * 10**18, 1800, true);
+        // V3: 18% 团队奖励, 小区100000 HCF, 需要下级V3 (烧5%, 解锁6-8代)
+        teamLevelConfigs[3] = TeamLevelConfig(0, 100000 * 10**18, 1800, true);
         
-        // V4: 24% 团队奖励, 需要20个直推, 2000000 HCF小区业绩, 需要下级V4
-        teamLevelConfigs[4] = TeamLevelConfig(20, 2000000 * 10**18, 2400, true);
+        // V4: 24% 团队奖励, 小区1000000 HCF, 需要下级V4 (烧5%, 解锁9-15代)
+        teamLevelConfigs[4] = TeamLevelConfig(0, 1000000 * 10**18, 2400, true);
         
-        // V5: 30% 团队奖励, 需要50个直推, 8000000 HCF小区业绩, 需要下级V5
-        teamLevelConfigs[5] = TeamLevelConfig(50, 8000000 * 10**18, 3000, true);
+        // V5: 30% 团队奖励, 小区8000000 HCF, 需要下级V5 (烧5%)
+        teamLevelConfigs[5] = TeamLevelConfig(0, 8000000 * 10**18, 3000, true);
         
-        // V6: 36% 团队奖励, 需要100个直推, 20000000 HCF小区业绩, 需要下级V6
-        teamLevelConfigs[6] = TeamLevelConfig(100, 20000000 * 10**18, 3600, true);
+        // V6: 36% 团队奖励, 小区20000000 HCF, 需要下级V6 (烧5%)
+        teamLevelConfigs[6] = TeamLevelConfig(0, 20000000 * 10**18, 3600, true);
     }
     
     // ============ 推荐绑定功能 ============
@@ -168,9 +170,6 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         require(referrer != msg.sender, "Cannot refer yourself");
         require(users[msg.sender].referrer == address(0), "Already has referrer");
         require(users[referrer].isActive, "Referrer not activated");
-        
-        // 检查循环推荐
-        require(!_isCircularReferral(msg.sender, referrer), "Circular referral detected");
         
         users[msg.sender].referrer = referrer;
         users[msg.sender].joinTime = block.timestamp;
@@ -182,16 +181,6 @@ contract HCFReferral is Ownable, ReentrancyGuard {
         emit ReferrerSet(msg.sender, referrer);
     }
     
-    function _isCircularReferral(address user, address potentialReferrer) private view returns (bool) {
-        address current = potentialReferrer;
-        for (uint256 i = 0; i < MAX_REFERRAL_LEVELS && current != address(0); i++) {
-            if (current == user) {
-                return true;
-            }
-            current = users[current].referrer;
-        }
-        return false;
-    }
     
     // ============ 用户激活功能 ============
     
@@ -268,8 +257,47 @@ contract HCFReferral is Ownable, ReentrancyGuard {
     // ============ 推荐奖励分发 ============
     
     /**
+     * @dev 分发入金推荐奖励 - 只给1-2代
+     * 一代5%，二代3%（烧伤限制）
+     */
+    function distributeDepositRewards(address user, uint256 depositAmount) external nonReentrant {
+        require(msg.sender == address(hcfStaking), "Only staking contract can distribute");
+        require(users[user].isActive, "User not activated");
+        
+        address currentReferrer = users[user].referrer;
+        
+        for (uint256 level = 1; level <= 2 && currentReferrer != address(0); level++) {
+            if (!users[currentReferrer].isActive) {
+                currentReferrer = users[currentReferrer].referrer;
+                continue;
+            }
+            
+            uint256 rewardRate = depositReferralRates[level];
+            if (rewardRate > 0) {
+                uint256 referralReward = (depositAmount * rewardRate) / 10000;
+                
+                // 烧伤限制：奖励不能超过推荐人自己的质押量
+                (uint256 referrerStaked, ) = hcfStaking.getUserInfo(currentReferrer);
+                if (referralReward > referrerStaked) {
+                    referralReward = referrerStaked;
+                }
+                
+                if (referralReward > 0) {
+                    hcfToken.transfer(currentReferrer, referralReward);
+                    users[currentReferrer].totalReferralReward += referralReward;
+                    
+                    emit ReferralRewardDistributed(user, currentReferrer, level, referralReward);
+                }
+            }
+            
+            currentReferrer = users[currentReferrer].referrer;
+        }
+    }
+    
+    /**
      * @dev 分发静态产出奖励 - 按文档要求的代数限制
-     * 一代20%，二代10%，3-8代5%，9-15代3%（V3+），16-20代2%（V4+）
+     * 一代20%，二代10%，3-8代5%（V3解锁），9-15代3%（V4解锁），16-20代2%（V4解锁）
+     * 烧10%
      */
     function distributeReferralRewards(address user, uint256 rewardAmount) external nonReentrant {
         require(msg.sender == address(hcfStaking), "Only staking contract can distribute");
@@ -292,34 +320,22 @@ contract HCFReferral is Ownable, ReentrancyGuard {
                 continue;
             }
             
-            // 检查代数限制
+            // 检查代数限制和解锁条件
             bool canReceive = false;
-            uint256 rewardRate = 0;
+            uint256 rewardRate = staticReferralRates[level];
             
-            if (level == 1) {
-                // 一代20%
+            if (level <= 2) {
+                // 1-2代直接获得
                 canReceive = true;
-                rewardRate = 2000; // 20%
-            } else if (level == 2) {
-                // 二代10%
-                canReceive = true;
-                rewardRate = 1000; // 10%
             } else if (level >= 3 && level <= 8) {
-                // 3-8代5%
-                canReceive = true;
-                rewardRate = 500; // 5%
+                // 3-8代需要V3解锁
+                canReceive = users[currentReferrer].teamLevel >= 3;
             } else if (level >= 9 && level <= 15) {
-                // 9-15代3%（需要V3+）
-                if (users[currentReferrer].teamLevel >= 3) {
-                    canReceive = true;
-                    rewardRate = 300; // 3%
-                }
+                // 9-15代需要V4解锁
+                canReceive = users[currentReferrer].teamLevel >= 4;
             } else if (level >= 16 && level <= 20) {
-                // 16-20代2%（需要V4+）
-                if (users[currentReferrer].teamLevel >= 4) {
-                    canReceive = true;
-                    rewardRate = 200; // 2%
-                }
+                // 16-20代需要V4解锁
+                canReceive = users[currentReferrer].teamLevel >= 4;
             }
             
             if (!canReceive) {

@@ -37,10 +37,12 @@ interface IHCFReferral {
 
 /**
  * @title HCFRanking
- * @dev 排名奖励系统 - 两项独立排名
+ * @dev 排名奖励系统 - 基于静态产出的两项独立排名
  * 
- * 1. 质押排名：基于个人质押币量/产出，任何人可进
- * 2. 小区排名：基于团队小区总质押/业绩，需要有效小区（非单条线）
+ * 1. 质押排名：基于个人静态产出，任何人可进
+ * 2. 小区排名：基于小区静态产出，需要有效小区（业绩>0，非单条线）
+ * 
+ * Top 2000名额外加10%-20%静态产出奖励
  */
 contract HCFRanking is Ownable, ReentrancyGuard {
     
@@ -64,8 +66,8 @@ contract HCFRanking is Ownable, ReentrancyGuard {
     struct UserRankData {
         uint256 stakingRank;        // 质押排名
         uint256 communityRank;      // 小区排名
-        uint256 stakingAmount;      // 质押量
-        uint256 communityPerformance; // 小区业绩
+        uint256 staticOutput;       // 个人静态产出
+        uint256 communityStaticOutput; // 小区静态产出
         uint256 stakingBonus;       // 质押排名奖励
         uint256 communityBonus;     // 小区排名奖励
         uint256 lastUpdateTime;     // 最后更新时间
@@ -106,11 +108,11 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         stakingContract = IHCFStaking(_stakingContract);
         referralContract = IHCFReferral(_referralContract);
         
-        // 初始化排名配置 - 按照需求设置
-        // Top 100: 20%, 101-299: 15%, 300-599: 12%, 600-999: 11%, 1000-2000: 10%
+        // 初始化排名配置 - 基于静态产出加10%-20%
+        // Top 100: 20%, 101-500: 15%, 501-1000: 12%, 1001-2000: 10%
         stakingRankConfig = RankingConfig({
             top100Bonus: 2000,    // 20%
-            top299Bonus: 1500,    // 15% 
+            top299Bonus: 1500,    // 15%
             top599Bonus: 1200,    // 12%
             top999Bonus: 1100,    // 11%
             top2000Bonus: 1000,   // 10%
@@ -219,14 +221,12 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         
         if (rank <= 100) {
             return config.top100Bonus;    // 20%
-        } else if (rank <= 299) {
-            return config.top299Bonus;    // 10%
-        } else if (rank <= 599) {
-            return config.top599Bonus;    // 5%
-        } else if (rank <= 999) {
-            return config.top999Bonus;    // 3%
+        } else if (rank <= 500) {
+            return config.top299Bonus;    // 15%
+        } else if (rank <= 1000) {
+            return config.top599Bonus;    // 12%
         } else if (rank <= 2000) {
-            return config.top2000Bonus;   // 1%
+            return config.top2000Bonus;   // 10%
         } else {
             return 0; // 2000名以外无奖励
         }
@@ -238,12 +238,11 @@ contract HCFRanking is Ownable, ReentrancyGuard {
     function updateUserRankData(
         address user,
         uint256 stakingRank,
-        uint256 communityRank
+        uint256 communityRank,
+        uint256 staticOutput,
+        uint256 communityStaticOutput
     ) external onlyOwner {
         UserRankData storage userData = userRankData[user];
-        
-        // 获取质押信息
-        (uint256 stakingAmount, , , , , , , , ) = stakingContract.getUserInfo(user);
         
         // 获取小区信息
         bool hasValidCommunity = referralContract.hasValidCommunity(user);
@@ -252,9 +251,9 @@ contract HCFRanking is Ownable, ReentrancyGuard {
         // 更新数据
         userData.stakingRank = stakingRank;
         userData.communityRank = hasValidCommunity ? communityRank : 0;
-        userData.stakingAmount = stakingAmount;
-        userData.communityPerformance = communityPerformance;
-        userData.hasValidCommunity = hasValidCommunity;
+        userData.staticOutput = staticOutput;
+        userData.communityStaticOutput = communityStaticOutput;
+        userData.hasValidCommunity = hasValidCommunity && communityPerformance > 0; // 业绩>0
         userData.lastUpdateTime = block.timestamp;
         
         // 计算奖励
@@ -272,17 +271,18 @@ contract HCFRanking is Ownable, ReentrancyGuard {
     function batchUpdateUserRanks(
         address[] memory users,
         uint256[] memory stakingRanks,
-        uint256[] memory communityRanks
+        uint256[] memory communityRanks,
+        uint256[] memory staticOutputs,
+        uint256[] memory communityStaticOutputs
     ) external onlyOwner {
         require(users.length == stakingRanks.length, "Length mismatch");
         require(users.length == communityRanks.length, "Length mismatch");
+        require(users.length == staticOutputs.length, "Length mismatch");
+        require(users.length == communityStaticOutputs.length, "Length mismatch");
         
         for (uint256 i = 0; i < users.length; i++) {
             // 内联更新逻辑，避免前向引用问题
             UserRankData storage userData = userRankData[users[i]];
-            
-            // 获取质押信息
-            (uint256 stakingAmount, , , , , , , , ) = stakingContract.getUserInfo(users[i]);
             
             // 获取小区信息
             bool hasValidCommunity = referralContract.hasValidCommunity(users[i]);
@@ -290,10 +290,10 @@ contract HCFRanking is Ownable, ReentrancyGuard {
             
             // 更新数据
             userData.stakingRank = stakingRanks[i];
-            userData.communityRank = hasValidCommunity ? communityRanks[i] : 0;
-            userData.stakingAmount = stakingAmount;
-            userData.communityPerformance = communityPerformance;
-            userData.hasValidCommunity = hasValidCommunity;
+            userData.communityRank = (hasValidCommunity && communityPerformance > 0) ? communityRanks[i] : 0;
+            userData.staticOutput = staticOutputs[i];
+            userData.communityStaticOutput = communityStaticOutputs[i];
+            userData.hasValidCommunity = hasValidCommunity && communityPerformance > 0;
             userData.lastUpdateTime = block.timestamp;
             
             // 计算奖励
